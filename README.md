@@ -8,6 +8,14 @@ Everything is built for the African SME reality — pricing in **South African R
 
 ---
 
+## ⚠️ Disclaimer
+
+The numbers displayed in NODAL — including revenue, sales, inventory levels, cash flow, credit scores, and forecasts — are **fictional sample data** created for demonstration purposes and do not represent any real business or individual.
+
+The underlying platform is **fully functional**. Data is persisted to and served from a **Huawei Cloud RDS (MySQL)** database, with file uploads stored in **Huawei Cloud OBS** object storage, and AI insights generated in real time. Only the seeded business figures are illustrative — the system, its data flow, and its features are real and operational.
+
+---
+
 ## ✨ Features
 
 ### Core modules
