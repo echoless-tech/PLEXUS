@@ -1,13 +1,422 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* ─────────────────────────────────────────────────────────────────────
+   NODAL design system — Tailwind v4
+   Preflight is intentionally omitted (only theme + utilities layers are
+   imported) so the legacy MUI pages keep their own base styles untouched
+   during the migration.
+   ───────────────────────────────────────────────────────────────────── */
+@import '@fontsource-variable/hanken-grotesk';
+
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* Class-based dark mode (toggled on <html class="dark">) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── Semantic tokens ─────────────────────────────────────────────────
+   Warm light mode: cream / ivory / sand.
+   Cards are separated from the canvas by a flat tonal lift — no borders.
+   ───────────────────────────────────────────────────────────────────── */
+:root {
+  --font-sans: 'Hanken Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+
+  --canvas: #ece5d8;        /* sand — app background */
+  --surface: #f6f1e8;       /* ivory — raised card */
+  --surface-2: #fbf8f1;     /* lightest — nested / hovered surface */
+  --surface-inset: #e4dccd; /* recessed wells, tracks */
+
+  --text: #211d17;          /* warm near-black */
+  --text-muted: #877e6f;    /* taupe */
+  --text-faint: #b3a995;    /* faint labels */
+
+  --hairline: rgba(33, 29, 23, 0.07);
+
+  --accent: #bb5a3c;        /* burnt terracotta — critical callouts only */
+  --accent-contrast: #fbf8f1;
+  --accent-soft: rgba(187, 90, 60, 0.1);
+  --accent-soft-strong: rgba(187, 90, 60, 0.16);
+
+  --positive: #6f7f5e;      /* muted sage — quiet positive data */
+  --negative: #b5654a;      /* clay — quiet negative data */
+
+  --grid: rgba(33, 29, 23, 0.06);
+
+  /* ─── Glassmorphism ─────────────────────────────────────────────────
+     Translucent frosted panes over an ambient coloured backdrop. */
+  --glass-bg: rgba(251, 248, 241, 0.55);
+  --glass-bg-strong: rgba(251, 248, 241, 0.72);
+  --glass-bg-inset: rgba(228, 220, 205, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-highlight: rgba(255, 255, 255, 0.65);
+  --glass-shadow: 0 10px 34px -12px rgba(33, 29, 23, 0.28);
+  --glass-blur: 18px;
+
+  /* ─── Elevation ─────────────────────────────────────────────────────
+     Lifted plate look: a soft drop shadow beneath, raising the surface
+     slightly above the page. (Same family as the Settings toggle pill.) */
+  --lift-raised: 0 1px 1px rgba(33, 29, 23, 0.04), 0 3px 8px -2px rgba(33, 29, 23, 0.12), 0 8px 20px -6px rgba(33, 29, 23, 0.1);
+  --lift-raised-sm: 0 1px 1px rgba(33, 29, 23, 0.04), 0 2px 6px -1px rgba(33, 29, 23, 0.12);
+  --lift-hover: 0 2px 3px rgba(33, 29, 23, 0.06), 0 6px 14px -3px rgba(33, 29, 23, 0.16), 0 14px 28px -8px rgba(33, 29, 23, 0.12);
+  --lift-pressed: 0 1px 2px rgba(33, 29, 23, 0.1);
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+.dark {
+  --canvas: #0c0c0e;        /* matte obsidian */
+  --surface: #161618;       /* charcoal card */
+  --surface-2: #1d1d20;     /* nested / hovered surface */
+  --surface-inset: #28282c; /* recessed wells, tracks */
+
+  --text: #f1ede6;
+  --text-muted: #8d877d;
+  --text-faint: #5b574f;
+
+  --hairline: rgba(255, 255, 255, 0.07);
+
+  --accent: #cf7050;        /* terracotta, lifted for dark legibility */
+  --accent-contrast: #15110e;
+  --accent-soft: rgba(207, 112, 80, 0.12);
+  --accent-soft-strong: rgba(207, 112, 80, 0.2);
+
+  --positive: #8a9a76;
+  --negative: #cf7d62;
+
+  --grid: rgba(255, 255, 255, 0.05);
+
+  /* Glassmorphism — dark */
+  --glass-bg: rgba(28, 28, 32, 0.52);
+  --glass-bg-strong: rgba(34, 34, 39, 0.68);
+  --glass-bg-inset: rgba(12, 12, 14, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-highlight: rgba(255, 255, 255, 0.16);
+  --glass-shadow: 0 12px 40px -14px rgba(0, 0, 0, 0.6);
+  --glass-blur: 18px;
+
+  /* Elevation — dark */
+  --lift-raised: 0 1px 1px rgba(0, 0, 0, 0.3), 0 3px 8px -2px rgba(0, 0, 0, 0.5), 0 8px 20px -6px rgba(0, 0, 0, 0.45);
+  --lift-raised-sm: 0 1px 1px rgba(0, 0, 0, 0.3), 0 2px 6px -1px rgba(0, 0, 0, 0.5);
+  --lift-hover: 0 2px 3px rgba(0, 0, 0, 0.4), 0 6px 14px -3px rgba(0, 0, 0, 0.55), 0 14px 28px -8px rgba(0, 0, 0, 0.5);
+  --lift-pressed: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* ─── Register tokens as Tailwind utilities ───────────────────────────
+   Enables bg-canvas, text-muted, border-hairline, etc.
+   ───────────────────────────────────────────────────────────────────── */
+@theme inline {
+  --font-sans: var(--font-sans);
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-inset: var(--surface-inset);
+
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+
+  --color-hairline: var(--hairline);
+  --color-grid: var(--grid);
+
+  --color-accent: var(--accent);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-strong: var(--accent-soft-strong);
+
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+
+  --color-glass: var(--glass-bg);
+  --color-glass-strong: var(--glass-bg-strong);
+  --color-glass-inset: var(--glass-bg-inset);
+  --color-glass-border: var(--glass-border);
+
+  --radius-tile: 22px;
+  --radius-tile-lg: 26px;
+
+  --tracking-label: 0.14em;
+}
+
+/* ─── Base scaffolding for the Tailwind-driven shell ─────────────────── */
+.nodal-root {
+  font-family: var(--font-sans);
+  background-color: var(--canvas);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'ss01', 'cv01';
+  position: relative;
+  isolation: isolate;
+}
+
+/* Ambient coloured backdrop — gives the frosted glass something to refract.
+   Fixed so it stays put while content scrolls. */
+.nodal-root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(42rem 42rem at 12% -8%, var(--accent-soft-strong), transparent 60%),
+    radial-gradient(38rem 38rem at 100% 0%, color-mix(in srgb, var(--positive) 30%, transparent), transparent 58%),
+    radial-gradient(46rem 46rem at 88% 108%, var(--accent-soft-strong), transparent 60%),
+    radial-gradient(40rem 40rem at 0% 100%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%);
+  background-attachment: fixed;
+}
+
+.nodal-root *,
+.nodal-root *::before,
+.nodal-root *::after {
+  box-sizing: border-box;
+}
+
+.nodal-root ::selection {
+  background-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* Preflight is omitted, so native <button> keeps the UA default border
+   (renders as a dark outline). Neutralise it for our own controls while
+   leaving MUI components (which carry a Mui* class) untouched. */
+.nodal-root button:not([class*='Mui']) {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Same for native form controls — strip the UA default border/outline. */
+.nodal-root input:not([class*='Mui']),
+.nodal-root textarea:not([class*='Mui']),
+.nodal-root select:not([class*='Mui']) {
+  border: 0;
+  font: inherit;
+  color: inherit;
+}
+.nodal-root input:not([class*='Mui']):focus,
+.nodal-root textarea:not([class*='Mui']):focus,
+.nodal-root select:not([class*='Mui']):focus {
+  outline: none;
+}
+
+/* Tabular numerals for metrics — keeps digits aligned and quiet */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum', 'ss01';
+}
+
+/* Quiet, near-invisible scrollbar */
+.nodal-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-inset) transparent;
+}
+.nodal-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.nodal-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--surface-inset);
+  border-radius: 999px;
+}
+.nodal-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ─── Custom app scrollbar ─────────────────────────────────────────────
+   Soft neumorphic track + accent-tinted thumb that brightens on hover. */
+.nodal-root,
+.nodal-root * {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 55%, var(--surface-inset)) transparent;
+}
+.nodal-root ::-webkit-scrollbar,
+.nodal-root::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.nodal-root ::-webkit-scrollbar-track,
+.nodal-root::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+.nodal-root ::-webkit-scrollbar-thumb,
+.nodal-root::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 70%, transparent),
+    color-mix(in srgb, var(--accent) 45%, var(--surface-inset))
+  );
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  box-shadow: inset 0 1px 0 0 var(--glass-highlight);
+  transition: background 0.2s ease;
+}
+.nodal-root ::-webkit-scrollbar-thumb:hover,
+.nodal-root::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 70%, var(--surface-inset))
+  );
+  background-clip: padding-box;
+}
+.nodal-root ::-webkit-scrollbar-corner,
+.nodal-root::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@keyframes nodal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-rise {
+  animation: nodal-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ─── Glassmorphism utilities ─────────────────────────────────────────
+   Frosted translucent panes with a luminous top edge.
+   Placed in the components layer so Tailwind utilities (e.g. border-l-0,
+   rounded-none) can still override individual properties. */
+@layer components {
+  .glass {
+    background-color: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 0 var(--glass-highlight);
+  }
+
+  .glass-strong {
+    background-color: var(--glass-bg-strong);
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(160%);
+    backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(160%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 0 var(--glass-highlight);
+  }
+
+  .glass-inset {
+    background-color: var(--glass-bg-inset);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-border);
+  }
+
+  /* Frosted accent pane — keeps the accent colour but adds blur + luminous edge */
+  .glass-accent {
+    background-color: color-mix(in srgb, var(--accent) 80%, transparent);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(165%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(165%);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--glass-border));
+    box-shadow: var(--glass-shadow), inset 0 1px 0 0 var(--glass-highlight);
+  }
+
+  /* ─── Elevation (lifted plate) ──────────────────────────────────────
+     Raised surfaces with a soft drop shadow; settle down a touch on press. */
+  .neu {
+    box-shadow: var(--lift-raised);
+    border: 1px solid var(--glass-border);
+    transition: box-shadow 0.18s ease, transform 0.18s ease;
+  }
+  .neu:hover {
+    box-shadow: var(--lift-hover);
+    transform: translateY(-1px);
+  }
+  .neu:active {
+    box-shadow: var(--lift-pressed);
+    transform: translateY(1px);
+  }
+  .neu-sm {
+    box-shadow: var(--lift-raised-sm);
+    border: 1px solid var(--glass-border);
+    transition: box-shadow 0.18s ease, transform 0.18s ease;
+  }
+  .neu-sm:hover {
+    box-shadow: var(--lift-raised);
+    transform: translateY(-1px);
+  }
+  .neu-sm:active {
+    box-shadow: var(--lift-pressed);
+    transform: translateY(1px);
+  }
+}
+
+/* Subtle sheen sweep for demo / feature panes */
+@keyframes glass-sheen {
+  0% { transform: translateX(-120%) skewX(-12deg); }
+  100% { transform: translateX(220%) skewX(-12deg); }
+}
+.glass-sheen::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  animation: glass-sheen 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Hide interactive controls (Print / Download / close) when printing a receipt */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* ─── Siri-like AI blob ────────────────────────────────────────────────
+   Layered gradient orbs that morph, drift and rotate behind a frosted core. */
+@keyframes blob-morph {
+  0%, 100% { border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%; }
+  33% { border-radius: 62% 38% 41% 59% / 58% 63% 37% 42%; }
+  66% { border-radius: 38% 62% 56% 44% / 63% 38% 62% 37%; }
+}
+@keyframes blob-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes blob-spin-rev {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+@keyframes blob-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.92; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+@keyframes blob-glow {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.12); }
+}
+@keyframes blob-drift-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(6%, -5%) scale(1.08); }
+  66% { transform: translate(-5%, 4%) scale(0.94); }
+}
+@keyframes blob-drift-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-6%, 5%) scale(0.95); }
+  66% { transform: translate(5%, -4%) scale(1.1); }
+}
+
+/* Markdown inside AI chat bubbles */
+.ai-markdown > :first-child { margin-top: 0; }
+.ai-markdown > :last-child { margin-bottom: 0; }
+.ai-markdown p { margin: 0 0 0.6em; }
+.ai-markdown strong { font-weight: 700; color: var(--text); }
+.ai-markdown ul, .ai-markdown ol { margin: 0.4em 0; padding-left: 1.2em; }
+.ai-markdown li { margin: 0.2em 0; }
+.ai-markdown a { color: var(--accent); text-decoration: underline; }
+.ai-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  background: var(--surface-inset);
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
 }
