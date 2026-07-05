@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Typography,
@@ -27,8 +27,9 @@ import {
   Facebook as FacebookIcon,
   ShoppingBag as ShopIcon,
 } from '@mui/icons-material';
-import { Pencil, Share2, Link as LinkIcon, Copy, Check, Monitor, Smartphone } from 'lucide-react';
+import { Pencil, Share2, Link as LinkIcon, Copy, Check, Monitor, Smartphone, ExternalLink } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
+import { publishStorefront, getStorefrontSlug } from '../services/db';
 import { PageHeader, Tile, Label, Metric, SegmentTabs, Button, GhostButton } from '../components/ui';
 
 const zar = (amount: number) =>
@@ -41,16 +42,58 @@ const Storefront: React.FC = () => {
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [linkCopied, setLinkCopied] = useState(false);
   const [editData, setEditData] = useState(businessProfile);
+  const [slug, setSlug] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+
+  const storeUrl = slug ? `${window.location.origin}/store/${slug}` : null;
+
+  // Load the published slug once.
+  useEffect(() => {
+    getStorefrontSlug().then(setSlug).catch(() => {});
+  }, []);
+
+  // Keep the live store in sync with profile / catalogue changes (debounced).
+  useEffect(() => {
+    if (!slug || products.length === 0) return;
+    const t = setTimeout(() => {
+      publishStorefront(businessProfile, products).catch(() => {});
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [slug, products, businessProfile]);
+
+  const publishNow = async (): Promise<string | null> => {
+    setPublishing(true);
+    try {
+      const s = await publishStorefront(businessProfile, products);
+      setSlug(s);
+      return s;
+    } catch {
+      showToast('Could not publish your storefront. Check your connection.', 'error');
+      return null;
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   const handleSaveProfile = () => {
     updateBusinessProfile(editData);
     setEditMode(false);
   };
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText('https://nodal.shop/apex-general-store');
+  const handleCopyLink = async () => {
+    const wasLive = !!slug;
+    const s = slug || (await publishNow());
+    if (!s) return;
+    navigator.clipboard.writeText(`${window.location.origin}/store/${s}`);
     setLinkCopied(true);
+    showToast(wasLive ? 'Store link copied.' : 'Storefront published — link copied!', 'success');
     setTimeout(() => setLinkCopied(false), 2000);
+  };
+
+  const handleOpenStore = async () => {
+    const s = slug || (await publishNow());
+    if (!s) return;
+    window.open(`${window.location.origin}/store/${s}`, '_blank', 'noopener');
   };
 
   const availableProducts = products.filter((p) => p.quantity > 0);
@@ -274,8 +317,12 @@ const Storefront: React.FC = () => {
             >
               <Pencil className="h-4 w-4" /> Edit profile
             </GhostButton>
-            <Button variant="accent" onClick={handleCopyLink}>
-              <Share2 className="h-4 w-4" /> {linkCopied ? 'Link copied!' : 'Share store'}
+            <GhostButton pill onClick={handleOpenStore} disabled={publishing}>
+              <ExternalLink className="h-4 w-4" /> {slug ? 'Open store' : 'Publish & open'}
+            </GhostButton>
+            <Button variant="accent" onClick={handleCopyLink} disabled={publishing}>
+              <Share2 className="h-4 w-4" />
+              {linkCopied ? 'Link copied!' : publishing ? 'Publishing…' : 'Share store'}
             </Button>
           </>
         }
@@ -287,12 +334,32 @@ const Storefront: React.FC = () => {
           <LinkIcon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <Label>Your store link</Label>
-          <p className="mt-0.5 truncate text-[0.9375rem] font-medium text-ink">https://nodal.shop/apex-general-store</p>
+          <div className="flex items-center gap-2">
+            <Label>Your store link</Label>
+            {slug && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-positive/10 px-2 py-0.5 text-[0.6875rem] font-semibold text-positive">
+                <span className="h-1.5 w-1.5 rounded-full bg-positive" /> Live
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 truncate text-[0.9375rem] font-medium text-ink">
+            {storeUrl ?? 'Not published yet — click “Share store” and your link goes live instantly.'}
+          </p>
         </div>
+        {storeUrl && (
+          <a
+            href={storeUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-surface-inset px-4 py-2 text-[0.875rem] font-semibold text-ink transition-colors hover:bg-surface-inset/70"
+          >
+            <ExternalLink className="h-4 w-4" /> Open
+          </a>
+        )}
         <button
           onClick={handleCopyLink}
-          className="inline-flex shrink-0 items-center gap-2 rounded-full bg-surface-inset px-4 py-2 text-[0.875rem] font-semibold text-ink transition-colors hover:bg-surface-inset/70"
+          disabled={publishing}
+          className="inline-flex shrink-0 items-center gap-2 rounded-full bg-surface-inset px-4 py-2 text-[0.875rem] font-semibold text-ink transition-colors hover:bg-surface-inset/70 disabled:opacity-50"
         >
           {linkCopied ? <Check className="h-4 w-4 text-positive" /> : <Copy className="h-4 w-4" />}
           {linkCopied ? 'Copied' : 'Copy'}

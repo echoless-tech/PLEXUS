@@ -1,0 +1,279 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId} == Firebase Auth uid of the owner
+// Fields:
+//   - seeded: bool (required) — sample-data seed marker, set once
+//   - createdAt: timestamp (required, immutable in practice)
+//   - businessProfile: map (required) — name (required string), tagline,
+//     description, logo, coverImage, phone, email, address, socialLinks
+//   - storefrontSlug: string (optional) — slug of the published storefront
+//
+// Subcollection: users/{userId}/products/{productId}
+//   - sku, name, description, category, unit: string (name required 1..200)
+//   - quantity, reorderLevel, price, costPrice: number >= 0
+//   - imageUrl: string (optional; may be a base64 data URL, < ~1MB doc cap)
+//   - supplierId: string (optional)
+//   - createdAt, updatedAt: timestamp
+//
+// Subcollection: users/{userId}/sales/{saleId}
+//   - invoiceNumber: string; customerId, customerName: string (optional)
+//   - items: list (<= 100 line items)
+//   - subtotal, tax, total: number >= 0
+//   - paymentMethod: 'cash'|'card'|'mobile'|'credit'
+//   - status: 'paid'|'pending'|'overdue'
+//   - createdAt: timestamp; dueDate: timestamp (optional)
+//
+// Subcollection: users/{userId}/suppliers/{supplierId}
+//   - name: string 1..200; contactPerson, email, phone, address: string
+//   - productsSupplied: list (<= 200); rating: number 0..5
+//   - lastOrderDate: timestamp (optional)
+//
+// Subcollection: users/{userId}/cashflow/{entryId}
+//   - date: timestamp; type: 'income'|'expense'
+//   - category, description: string; amount: number >= 0
+//   - reference: string (optional)
+//
+// Subcollection: users/{userId}/stockMovements/{movementId}
+//   - productId: string; type: 'in'|'out'|'adjustment'
+//   - quantity: number >= 0; reason: string; reference: string (optional)
+//   - createdAt: timestamp
+//
+// All user data is strictly private to its owner.
+//
+// Collection: storefronts  (PUBLIC READ — explicit product feature)
+// Document ID: {slug} — first-come-first-served, claimed at publish time
+// Fields:
+//   - ownerUid: string (required, immutable) — uid of the publishing user
+//   - name: string (required 1..200); tagline, description, phone, email,
+//     address: strings (bounded)
+//   - socialLinks: map (optional) — whatsapp / instagram / facebook
+//   - products: list (<= 200) — snapshot of in-stock catalogue items
+//   - publishedAt, updatedAt: timestamp
+// Publishing is an explicit owner action (Share/Open store button); the
+// document intentionally contains only business contact info the owner
+// chose to put on their public storefront.
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function validString(v, minLen, maxLen) {
+      return v is string && v.size() >= minLen && v.size() <= maxLen;
+    }
+
+    function optionalString(data, field, maxLen) {
+      return !(field in data) || validString(data[field], 0, maxLen);
+    }
+
+    function nonNegativeNumber(v) {
+      return v is number && v >= 0;
+    }
+
+    function optionalTimestamp(data, field) {
+      return !(field in data) || data[field] is timestamp;
+    }
+
+    // ===============================================================
+    // Domain Validators (used in BOTH create and update)
+    // ===============================================================
+
+    function isValidUserDoc(data) {
+      return data.keys().hasOnly(['seeded', 'createdAt', 'businessProfile', 'storefrontSlug']) &&
+        data.seeded == true &&
+        data.createdAt is timestamp &&
+        optionalString(data, 'storefrontSlug', 80) &&
+        data.businessProfile is map &&
+        data.businessProfile.keys().hasOnly([
+          'name', 'tagline', 'description', 'logo', 'coverImage',
+          'phone', 'email', 'address', 'socialLinks'
+        ]) &&
+        validString(data.businessProfile.name, 1, 200);
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasOnly([
+          'sku', 'name', 'description', 'category', 'quantity', 'reorderLevel',
+          'price', 'costPrice', 'unit', 'imageUrl', 'supplierId',
+          'createdAt', 'updatedAt'
+        ]) &&
+        validString(data.name, 1, 200) &&
+        validString(data.sku, 0, 100) &&
+        validString(data.description, 0, 2000) &&
+        validString(data.category, 0, 100) &&
+        validString(data.unit, 0, 50) &&
+        nonNegativeNumber(data.quantity) &&
+        nonNegativeNumber(data.reorderLevel) &&
+        nonNegativeNumber(data.price) &&
+        nonNegativeNumber(data.costPrice) &&
+        optionalString(data, 'imageUrl', 1000000) &&
+        optionalString(data, 'supplierId', 100) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSale(data) {
+      return data.keys().hasOnly([
+          'invoiceNumber', 'customerId', 'customerName', 'items', 'subtotal',
+          'tax', 'total', 'paymentMethod', 'status', 'createdAt', 'dueDate'
+        ]) &&
+        validString(data.invoiceNumber, 0, 100) &&
+        optionalString(data, 'customerId', 100) &&
+        optionalString(data, 'customerName', 200) &&
+        data.items is list && data.items.size() <= 100 &&
+        nonNegativeNumber(data.subtotal) &&
+        nonNegativeNumber(data.tax) &&
+        nonNegativeNumber(data.total) &&
+        data.paymentMethod in ['cash', 'card', 'mobile', 'credit'] &&
+        data.status in ['paid', 'pending', 'overdue'] &&
+        data.createdAt is timestamp &&
+        optionalTimestamp(data, 'dueDate');
+    }
+
+    function isValidSupplier(data) {
+      return data.keys().hasOnly([
+          'name', 'contactPerson', 'email', 'phone', 'address',
+          'productsSupplied', 'lastOrderDate', 'rating'
+        ]) &&
+        validString(data.name, 1, 200) &&
+        validString(data.contactPerson, 0, 200) &&
+        validString(data.email, 0, 320) &&
+        validString(data.phone, 0, 50) &&
+        validString(data.address, 0, 500) &&
+        data.productsSupplied is list && data.productsSupplied.size() <= 200 &&
+        data.rating is number && data.rating >= 0 && data.rating <= 5 &&
+        optionalTimestamp(data, 'lastOrderDate');
+    }
+
+    function isValidCashFlowEntry(data) {
+      return data.keys().hasOnly([
+          'date', 'type', 'category', 'description', 'amount', 'reference'
+        ]) &&
+        data.date is timestamp &&
+        data.type in ['income', 'expense'] &&
+        validString(data.category, 0, 100) &&
+        validString(data.description, 0, 1000) &&
+        nonNegativeNumber(data.amount) &&
+        optionalString(data, 'reference', 200);
+    }
+
+    function isValidStockMovement(data) {
+      return data.keys().hasOnly([
+          'productId', 'type', 'quantity', 'reason', 'reference', 'createdAt'
+        ]) &&
+        validString(data.productId, 1, 100) &&
+        data.type in ['in', 'out', 'adjustment'] &&
+        nonNegativeNumber(data.quantity) &&
+        validString(data.reason, 0, 500) &&
+        optionalString(data, 'reference', 200) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidStorefront(data) {
+      return data.keys().hasOnly([
+          'ownerUid', 'name', 'tagline', 'description', 'phone', 'email',
+          'address', 'socialLinks', 'products', 'publishedAt', 'updatedAt'
+        ]) &&
+        validString(data.ownerUid, 1, 128) &&
+        validString(data.name, 1, 200) &&
+        validString(data.tagline, 0, 300) &&
+        validString(data.description, 0, 2000) &&
+        validString(data.phone, 0, 50) &&
+        validString(data.email, 0, 320) &&
+        validString(data.address, 0, 500) &&
+        (!('socialLinks' in data) ||
+          (data.socialLinks is map &&
+            data.socialLinks.keys().hasOnly(['whatsapp', 'instagram', 'facebook']))) &&
+        data.products is list && data.products.size() <= 200 &&
+        data.publishedAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules — all data strictly scoped to its owner
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserDoc(request.resource.data);
+      allow update: if isOwner(userId) && isValidUserDoc(request.resource.data);
+      allow delete: if false;
+
+      match /products/{productId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidProduct(request.resource.data);
+        allow update: if isOwner(userId) && isValidProduct(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /sales/{saleId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidSale(request.resource.data);
+        allow update: if isOwner(userId) && isValidSale(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /suppliers/{supplierId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidSupplier(request.resource.data);
+        allow update: if isOwner(userId) && isValidSupplier(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /cashflow/{entryId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidCashFlowEntry(request.resource.data);
+        allow update: if isOwner(userId) && isValidCashFlowEntry(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /stockMovements/{movementId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidStockMovement(request.resource.data);
+        allow update: if isOwner(userId) && isValidStockMovement(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // ===============================================================
+    // Public storefronts — the ONLY publicly readable collection.
+    // Read access is intentional: these documents exist to be shared
+    // (the "store link" feature) and are only created by an explicit
+    // owner publish action. Writes are owner-only, ownership is
+    // immutable, and slugs are first-come-first-served.
+    // ===============================================================
+
+    match /storefronts/{slug} {
+      allow read: if true;
+      allow create: if isAuthenticated() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        isValidStorefront(request.resource.data);
+      allow update: if isAuthenticated() &&
+        resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        isValidStorefront(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // Default deny — anything not matched above is inaccessible.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

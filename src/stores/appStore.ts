@@ -2,10 +2,16 @@ import { create } from 'zustand';
 import { Product, Sale, Supplier, CashFlowEntry, BusinessProfile, StockMovement } from '../types';
 import { mockProducts, mockSales, mockSuppliers, mockCashFlow, mockStockMovements, mockBusinessProfile } from '../data';
 import * as db from '../services/db';
+import { AuthUser } from '../services/auth';
 import { AccentThemeKey, getStoredAccentTheme, storeAccentTheme } from '../theme/accents';
 import { getStoredModel, storeModel } from '../services/ai';
 
 interface AppState {
+  // Auth
+  user: AuthUser | null;
+  authReady: boolean;
+  setAuthUser: (user: AuthUser | null) => void;
+
   // Database sync
   dbReady: boolean;
   dbError: string | null;
@@ -73,11 +79,36 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  // Auth
+  user: null,
+  authReady: false,
+  setAuthUser: (user) => {
+    set({ user, authReady: true });
+    if (user) {
+      get().loadFromDatabase();
+    } else {
+      // Signed out — reset to a clean slate (mock data for the next session's seed).
+      set({
+        products: mockProducts,
+        sales: mockSales,
+        suppliers: mockSuppliers,
+        cashFlow: mockCashFlow,
+        stockMovements: mockStockMovements,
+        businessProfile: mockBusinessProfile,
+        dbReady: false,
+        dbError: null,
+        aiCache: {},
+      });
+    }
+  },
+
   // Database sync
   dbReady: false,
   dbError: null,
   loadFromDatabase: async () => {
     try {
+      // First sign-in: seed the workspace with sample data (no-op afterwards).
+      await db.ensureSeeded(get().user?.displayName);
       const [products, sales, suppliers, cashFlow, stockMovements, profile] = await Promise.all([
         db.fetchProducts(),
         db.fetchSales(),
@@ -87,11 +118,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         db.fetchBusinessProfile(),
       ]);
       set({
-        products: products.length > 0 ? products : mockProducts,
-        sales: sales.length > 0 ? sales : mockSales,
-        suppliers: suppliers.length > 0 ? suppliers : mockSuppliers,
-        cashFlow: cashFlow.length > 0 ? cashFlow : mockCashFlow,
-        stockMovements: stockMovements.length > 0 ? stockMovements : mockStockMovements,
+        products,
+        sales,
+        suppliers,
+        cashFlow,
+        stockMovements,
         businessProfile: profile || mockBusinessProfile,
         dbReady: true,
         dbError: null,

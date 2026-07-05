@@ -5,6 +5,7 @@ import {
   Settings, LifeBuoy, Store, LogOut, CheckCheck,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
+import { signOut } from '../../services/auth';
 import { GhostButton } from '../ui';
 
 export const Header: React.FC = () => {
@@ -18,6 +19,7 @@ export const Header: React.FC = () => {
   const markNotificationRead = useAppStore((s) => s.markNotificationRead);
   const clearNotifications = useAppStore((s) => s.clearNotifications);
   const showToast = useAppStore((s) => s.showToast);
+  const user = useAppStore((s) => s.user);
 
   const [now, setNow] = useState(new Date());
   const [openMenu, setOpenMenu] = useState<'none' | 'notifications' | 'account'>('none');
@@ -181,7 +183,7 @@ export const Header: React.FC = () => {
                 </span>
                 <div className="min-w-0">
                   <p className="truncate text-[0.875rem] font-semibold text-ink">{businessProfile?.name || 'NODAL'}</p>
-                  <p className="truncate text-[0.75rem] text-muted">Owner · Admin</p>
+                  <p className="truncate text-[0.75rem] text-muted">{user?.email || 'Owner · Admin'}</p>
                 </div>
               </div>
               <div className="border-t border-hairline py-1.5">
@@ -196,7 +198,7 @@ export const Header: React.FC = () => {
                   danger
                   onClick={() => {
                     setOpenMenu('none');
-                    showToast('Signed out (demo) — your session stays active.', 'info');
+                    signOut().catch(() => showToast('Sign out failed — try again.', 'error'));
                   }}
                 />
               </div>
