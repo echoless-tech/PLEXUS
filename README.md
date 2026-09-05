@@ -114,7 +114,7 @@ Or run it from scratch:
 
 ## Deployment — GitHub Pages
 
-Every push to `main` runs [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml), which builds the app with `VITE_BASE_PATH=/PLEXUS/` and publishes it to GitHub Pages.
+Every push to `main` runs [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml), which builds the app with `VITE_BASE_PATH=/PLEXUS/` and publishes the output to the `master` branch. GitHub Pages serves `master` (Settings → Pages → Deploy from a branch → `master` / root). `main` is the source of truth; `master` holds only build output.
 
 **Live now:** https://lordgeeone.github.io/PLEXUS/ (repo `LordGeeOne/PLEXUS`). Once the repo is transferred to `echoless-tech`, the URL becomes `https://echoless-tech.github.io/PLEXUS/` with no code changes — the base path is the repo name, not the owner.
 

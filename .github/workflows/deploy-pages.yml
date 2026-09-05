@@ -1,8 +1,15 @@
-# Build the Vite app and publish it to GitHub Pages on every push to main.
+# Build the Vite app on every push to main and publish the built site to the
+# `master` branch, which GitHub Pages serves (Settings → Pages → Deploy from a
+# branch → master / root).
 #
-# Pages is enabled automatically on the first run (see configure-pages below).
+# Why not the "GitHub Actions" Pages source? That requires repo-admin to enable
+# and an admin-scoped token to create the Pages site. This approach needs only
+# `contents: write`, so it works on a transferred repo without extra setup.
+#
 # The site is served at https://echoless-tech.github.io/PLEXUS/ — hence
-# VITE_BASE_PATH below. Change it if the repo is renamed or given a custom domain.
+# VITE_BASE_PATH. `master` holds only build output; source of truth is `main`.
+# If you later switch Pages to the "GitHub Actions" source, replace this file
+# with the official upload-pages-artifact / deploy-pages actions.
 
 name: Deploy to GitHub Pages
 
@@ -12,17 +19,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# Never run two deploys at once; let an in-flight deploy finish.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-deploy
+  cancel-in-progress: true
 
 jobs:
-  build:
+  build-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,22 +44,13 @@ jobs:
           VITE_BASE_PATH: /PLEXUS/
         run: npm run build
 
-      # enablement: true turns Pages on with the "GitHub Actions" source the
-      # first time this runs, so no manual Settings → Pages step is needed.
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: build
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish build to master (Pages branch)
+        run: |
+          touch build/.nojekyll
+          cd build
+          git init -q -b master
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "deploy: ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" master
