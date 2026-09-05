@@ -35,7 +35,7 @@ The client is untrusted. Everything below is enforced by **Firestore Security Ru
 - Every timestamp that matters must equal `request.time`. Audit events are create-only. Agreements are cancelled, never deleted.
 - Only the last four digits of ID and bank numbers can be stored. Every field has a hard size cap.
 
-Full detail, threat model and the regulatory map: **[docs/PLEXUS_TRUST_AND_COMPLIANCE.md](docs/PLEXUS_TRUST_AND_COMPLIANCE.md)**.
+Full detail and the regulatory map: **[PLEXUS_TRUST_AND_COMPLIANCE.md](../PLEXUS_TRUST_AND_COMPLIANCE.md)**. Risk register, threat model, secure-coding standard, test suite and release gates: **[PLEXUS_SSDLC.md](../PLEXUS_SSDLC.md)**.
 
 ---
 
@@ -114,7 +114,9 @@ Or run it from scratch:
 
 ## Deployment — GitHub Pages
 
-Every push to `main` runs [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml), which builds the app with `VITE_BASE_PATH=/PLEXUS/` and publishes it to **https://echoless-tech.github.io/PLEXUS/**. Pages is enabled automatically on the first run.
+Every push to `main` runs [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml), which builds the app with `VITE_BASE_PATH=/PLEXUS/` and publishes it to GitHub Pages.
+
+**Live now:** https://lordgeeone.github.io/PLEXUS/ (repo `LordGeeOne/PLEXUS`). Once the repo is transferred to `echoless-tech`, the URL becomes `https://echoless-tech.github.io/PLEXUS/` with no code changes — the base path is the repo name, not the owner.
 
 Deep links survive a refresh via `public/404.html`, which bounces unknown paths back to `index.html` with the route preserved.
 
