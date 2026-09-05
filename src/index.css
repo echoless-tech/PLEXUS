@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────
-   NODAL design system — Tailwind v4
+   PLEXUS design system — Tailwind v4
    Preflight is intentionally omitted (only theme + utilities layers are
    imported) so the legacy MUI pages keep their own base styles untouched
    during the migration.
@@ -136,7 +136,7 @@
 }
 
 /* ─── Base scaffolding for the Tailwind-driven shell ─────────────────── */
-.nodal-root {
+.plexus-root {
   font-family: var(--font-sans);
   background-color: var(--canvas);
   color: var(--text);
@@ -149,7 +149,7 @@
 
 /* Ambient coloured backdrop — gives the frosted glass something to refract.
    Fixed so it stays put while content scrolls. */
-.nodal-root::before {
+.plexus-root::before {
   content: '';
   position: fixed;
   inset: 0;
@@ -163,13 +163,13 @@
   background-attachment: fixed;
 }
 
-.nodal-root *,
-.nodal-root *::before,
-.nodal-root *::after {
+.plexus-root *,
+.plexus-root *::before,
+.plexus-root *::after {
   box-sizing: border-box;
 }
 
-.nodal-root ::selection {
+.plexus-root ::selection {
   background-color: var(--accent);
   color: var(--accent-contrast);
 }
@@ -177,7 +177,7 @@
 /* Preflight is omitted, so native <button> keeps the UA default border
    (renders as a dark outline). Neutralise it for our own controls while
    leaving MUI components (which carry a Mui* class) untouched. */
-.nodal-root button:not([class*='Mui']) {
+.plexus-root button:not([class*='Mui']) {
   border: 0;
   background: none;
   font: inherit;
@@ -186,16 +186,16 @@
 }
 
 /* Same for native form controls — strip the UA default border/outline. */
-.nodal-root input:not([class*='Mui']),
-.nodal-root textarea:not([class*='Mui']),
-.nodal-root select:not([class*='Mui']) {
+.plexus-root input:not([class*='Mui']),
+.plexus-root textarea:not([class*='Mui']),
+.plexus-root select:not([class*='Mui']) {
   border: 0;
   font: inherit;
   color: inherit;
 }
-.nodal-root input:not([class*='Mui']):focus,
-.nodal-root textarea:not([class*='Mui']):focus,
-.nodal-root select:not([class*='Mui']):focus {
+.plexus-root input:not([class*='Mui']):focus,
+.plexus-root textarea:not([class*='Mui']):focus,
+.plexus-root select:not([class*='Mui']):focus {
   outline: none;
 }
 
@@ -205,42 +205,77 @@
   font-feature-settings: 'tnum', 'ss01';
 }
 
+/* ─── Mobile / touch behaviour ─────────────────────────────────────────
+   Prevents iOS from zooming on input focus, kills the grey tap flash,
+   and stops horizontal overflow from breaking the layout on phones.
+   NOTE: use overflow-x: clip (not hidden) — `hidden` forces overflow-y to
+   compute as `auto`, turning both html and body into scroll containers and
+   breaking normal vertical scrolling. `clip` prevents sideways overflow
+   without creating a scroll container or breaking position: sticky. */
+html,
+body {
+  overflow-x: clip;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  overscroll-behavior-y: none;
+}
+
+.plexus-root {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 767px) {
+  /* iOS zooms any input whose font-size is under 16px. */
+  .plexus-root input:not([class*='Mui']),
+  .plexus-root textarea:not([class*='Mui']),
+  .plexus-root select:not([class*='Mui']) {
+    font-size: 16px;
+  }
+}
+
+/* Horizontal scrollers get momentum scrolling on touch */
+.plexus-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Quiet, near-invisible scrollbar */
-.nodal-scroll {
+.plexus-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--surface-inset) transparent;
 }
-.nodal-scroll::-webkit-scrollbar {
+.plexus-scroll::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
-.nodal-scroll::-webkit-scrollbar-thumb {
+.plexus-scroll::-webkit-scrollbar-thumb {
   background-color: var(--surface-inset);
   border-radius: 999px;
 }
-.nodal-scroll::-webkit-scrollbar-track {
+.plexus-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
 /* ─── Custom app scrollbar ─────────────────────────────────────────────
    Soft neumorphic track + accent-tinted thumb that brightens on hover. */
-.nodal-root,
-.nodal-root * {
+.plexus-root,
+.plexus-root * {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--accent) 55%, var(--surface-inset)) transparent;
 }
-.nodal-root ::-webkit-scrollbar,
-.nodal-root::-webkit-scrollbar {
+.plexus-root ::-webkit-scrollbar,
+.plexus-root::-webkit-scrollbar {
   width: 12px;
   height: 12px;
 }
-.nodal-root ::-webkit-scrollbar-track,
-.nodal-root::-webkit-scrollbar-track {
+.plexus-root ::-webkit-scrollbar-track,
+.plexus-root::-webkit-scrollbar-track {
   background: transparent;
   border-radius: 999px;
 }
-.nodal-root ::-webkit-scrollbar-thumb,
-.nodal-root::-webkit-scrollbar-thumb {
+.plexus-root ::-webkit-scrollbar-thumb,
+.plexus-root::-webkit-scrollbar-thumb {
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--accent) 70%, transparent),
@@ -252,8 +287,8 @@
   box-shadow: inset 0 1px 0 0 var(--glass-highlight);
   transition: background 0.2s ease;
 }
-.nodal-root ::-webkit-scrollbar-thumb:hover,
-.nodal-root::-webkit-scrollbar-thumb:hover {
+.plexus-root ::-webkit-scrollbar-thumb:hover,
+.plexus-root::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(
     180deg,
     var(--accent),
@@ -261,12 +296,12 @@
   );
   background-clip: padding-box;
 }
-.nodal-root ::-webkit-scrollbar-corner,
-.nodal-root::-webkit-scrollbar-corner {
+.plexus-root ::-webkit-scrollbar-corner,
+.plexus-root::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-@keyframes nodal-rise {
+@keyframes plexus-rise {
   from {
     opacity: 0;
     transform: translateY(8px);
@@ -277,7 +312,7 @@
   }
 }
 .animate-rise {
-  animation: nodal-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: plexus-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* ─── Glassmorphism utilities ─────────────────────────────────────────

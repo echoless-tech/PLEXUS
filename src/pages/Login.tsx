@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Loader2, Lock, Mail, Store } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, Mail, Store, ShieldCheck, FileSignature, Receipt } from 'lucide-react';
 import { SegmentTabs, Button, Toaster } from '../components/ui';
-import { signIn, signUp, resetPassword, authErrorMessage } from '../services/auth';
+import { signIn, signUp, resetPassword, authErrorMessage, MIN_PASSWORD_LENGTH } from '../services/auth';
 import { useAppStore } from '../stores/appStore';
 
 /**
- * Full-screen sign-in / create-account screen.
- * Rendered instead of the AppShell whenever there is no authenticated user —
- * auth state flows through the store, so a successful sign-in swaps the UI
- * automatically.
+ * Sign-in / create-account. Email + password only — payment rails are not
+ * identity providers, so there is deliberately no "sign in with PayShap".
  */
 const Login: React.FC = () => {
   const showToast = useAppStore((s) => s.showToast);
@@ -26,24 +24,15 @@ const Login: React.FC = () => {
     e.preventDefault();
     if (busy) return;
     setError(null);
-
-    if (!email.trim() || !password) {
-      setError('Enter your email and password.');
-      return;
-    }
-    if (isSignup && !businessName.trim()) {
-      setError('Enter your business name.');
-      return;
-    }
+    if (!email.trim() || !password) return setError('Enter your email and password.');
+    if (isSignup && !businessName.trim()) return setError('Enter your business name.');
+    if (isSignup && password.length < MIN_PASSWORD_LENGTH)
+      return setError(`Use at least ${MIN_PASSWORD_LENGTH} characters for your password.`);
 
     setBusy(true);
     try {
-      if (isSignup) {
-        await signUp(email, password, businessName);
-      } else {
-        await signIn(email, password);
-      }
-      // onAuthStateChanged → setAuthUser → app swaps to the shell.
+      if (isSignup) await signUp(email, password, businessName);
+      else await signIn(email, password);
     } catch (err) {
       setError(authErrorMessage(err));
       setBusy(false);
@@ -51,10 +40,7 @@ const Login: React.FC = () => {
   };
 
   const forgot = async () => {
-    if (!email.trim()) {
-      setError('Enter your email above first, then tap "Forgot password".');
-      return;
-    }
+    if (!email.trim()) return setError('Enter your email above first, then tap "Forgot password".');
     try {
       await resetPassword(email);
       showToast(`Password reset email sent to ${email.trim()}`, 'success');
@@ -64,16 +50,13 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="nodal-root flex min-h-screen items-center justify-center bg-canvas px-4 py-10 text-ink">
+    <div className="plexus-root flex min-h-screen items-center justify-center bg-canvas px-4 py-10 text-ink">
       <div className="animate-rise w-full max-w-[26rem]">
-        {/* Wordmark */}
         <div className="mb-7 text-center">
           <p className="text-[2rem] font-extrabold leading-none tracking-[-0.03em]">
-            NODAL<span className="text-accent">.</span>
+            PLEXUS<span className="text-accent">.</span>
           </p>
-          <p className="mt-2 text-[0.875rem] text-muted">
-            Your business, one node at a time
-          </p>
+          <p className="mt-2 text-[0.875rem] text-muted">Get paid as the work progresses.</p>
         </div>
 
         <div className="glass-strong rounded-[28px] p-6 sm:p-8">
@@ -98,7 +81,6 @@ const Login: React.FC = () => {
                 autoComplete="organization"
               />
             )}
-
             <Field
               icon={<Mail className="h-4 w-4 shrink-0 text-faint" />}
               type="email"
@@ -107,11 +89,10 @@ const Login: React.FC = () => {
               onChange={setEmail}
               autoComplete="email"
             />
-
             <Field
               icon={<Lock className="h-4 w-4 shrink-0 text-faint" />}
               type={showPassword ? 'text' : 'password'}
-              placeholder={isSignup ? 'Password (min 6 characters)' : 'Password'}
+              placeholder={isSignup ? `Password (min ${MIN_PASSWORD_LENGTH} characters)` : 'Password'}
               value={password}
               onChange={setPassword}
               autoComplete={isSignup ? 'new-password' : 'current-password'}
@@ -128,16 +109,14 @@ const Login: React.FC = () => {
             />
 
             {error && (
-              <p className="rounded-2xl bg-negative/10 px-4 py-2.5 text-[0.8125rem] font-medium text-negative">
-                {error}
-              </p>
+              <p className="rounded-2xl bg-negative/10 px-4 py-2.5 text-[0.8125rem] font-medium text-negative">{error}</p>
             )}
 
             <Button type="submit" variant="accent" disabled={busy} className="mt-1 py-2.5">
               {busy ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  {isSignup ? 'Creating your workspace…' : 'Signing in…'}
+                  {isSignup ? 'Creating your account…' : 'Signing in…'}
                 </>
               ) : isSignup ? (
                 'Create account'
@@ -156,18 +135,22 @@ const Login: React.FC = () => {
               Forgot password?
             </button>
           )}
-
-          {isSignup && (
-            <p className="mt-4 text-center text-[0.75rem] leading-relaxed text-faint">
-              Your workspace starts with sample data so you can explore
-              every screen — replace it with your own as you go.
-            </p>
-          )}
         </div>
 
-        <p className="mt-5 text-center text-[0.75rem] text-faint">
-          Data is stored securely in the cloud and synced across your devices.
-        </p>
+        <ul className="mt-6 grid grid-cols-3 gap-2 text-center text-[0.6875rem] leading-snug text-faint">
+          <li className="flex flex-col items-center gap-1.5">
+            <ShieldCheck className="h-4 w-4 text-muted" />
+            Verified parties
+          </li>
+          <li className="flex flex-col items-center gap-1.5">
+            <FileSignature className="h-4 w-4 text-muted" />
+            Terms locked on acceptance
+          </li>
+          <li className="flex flex-col items-center gap-1.5">
+            <Receipt className="h-4 w-4 text-muted" />
+            Full audit trail
+          </li>
+        </ul>
       </div>
       <Toaster />
     </div>

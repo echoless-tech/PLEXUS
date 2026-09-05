@@ -2,14 +2,33 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" type="image/png" href="/icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/png" href="./icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0a0b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PLEXUS" />
     <meta
       name="description"
-      content="NODAL — AI business intelligence for African SMEs"
+      content="PLEXUS — Progressive payment agreements for SMEs. Get paid as the work progresses."
     />
-    <title>NODAL</title>
+    <title>PLEXUS</title>
+    <script>
+      // Counterpart to public/404.html: if GitHub Pages bounced a deep link
+      // here as ?p=/route, put the real path back before the app mounts.
+      (function () {
+        var l = window.location;
+        if (l.search.indexOf('?p=') !== 0 && l.search.indexOf('?p=/') !== 0) return;
+        var q = {};
+        l.search.slice(1).split('&').forEach(function (kv) {
+          var i = kv.indexOf('=');
+          q[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)).replace(/~and~/g, '&');
+        });
+        var base = l.pathname.replace(/\/$/, '');
+        window.history.replaceState(null, '', base + (q.p || '/') + (q.q ? '?' + q.q : '') + l.hash);
+      })();
+    </script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

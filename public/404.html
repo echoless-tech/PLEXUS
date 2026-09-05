@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PLEXUS</title>
+    <meta name="robots" content="noindex" />
+    <script>
+      // GitHub Pages SPA fallback. Pages serves this file for any path that
+      // isn't a real file. We stash the requested path in the query string and
+      // bounce to the app root, where index.html restores it before React
+      // Router mounts — so a refresh on /PLEXUS/contracts/abc keeps working.
+      (function () {
+        var segments = 1; // project site → first path segment is the repo name
+        var l = window.location;
+        var parts = l.pathname.split('/');
+        var base = parts.slice(0, 1 + segments).join('/');
+        var rest = parts.slice(1 + segments).join('/');
+        l.replace(
+          l.protocol + '//' + l.host + base + '/?p=/' + rest.replace(/&/g, '~and~') +
+            (l.search ? '&q=' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+            l.hash
+        );
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

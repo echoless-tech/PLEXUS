@@ -17,10 +17,10 @@ interface MetricProps {
 export const Metric: React.FC<MetricProps> = ({ label, value, hint, critical, accent, className }) => (
   <Tile accent={accent} className={cn('gap-5', className)}>
     <Label onAccent={accent}>{label}</Label>
-    <div className="mt-auto flex items-baseline gap-2">
+    <div className="mt-auto flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
       <span
         className={cn(
-          'tnum text-[2rem] font-bold leading-none tracking-[-0.02em]',
+          'tnum text-[clamp(1.15rem,5.2vw,2rem)] font-bold leading-none tracking-[-0.02em]',
           accent ? 'text-accent-contrast' : critical ? 'text-accent' : 'text-ink',
         )}
       >

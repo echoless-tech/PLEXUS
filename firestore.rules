@@ -1,277 +1,542 @@
 rules_version = '2';
 
-// ===============================================================
-// Assumed Data Model
-// ===============================================================
+// =====================================================================
+// PLEXUS — Progressive Payment Contracts
+// Firestore Security Rules (Standard edition, default-deny)
 //
-// Collection: users
-// Document ID: {userId} == Firebase Auth uid of the owner
-// Fields:
-//   - seeded: bool (required) — sample-data seed marker, set once
-//   - createdAt: timestamp (required, immutable in practice)
-//   - businessProfile: map (required) — name (required string), tagline,
-//     description, logo, coverImage, phone, email, address, socialLinks
-//   - storefrontSlug: string (optional) — slug of the published storefront
+// THREAT MODEL
+//   Two mutually distrustful parties (SME and Buyer) share a contract.
+//   Neither party may: read contracts they are not part of; alter agreed
+//   amounts/terms after acceptance; move a milestone through the payment
+//   workflow out of order or on the other party's behalf; forge audit
+//   events or timestamps; or grant themselves "verified" status.
 //
-// Subcollection: users/{userId}/products/{productId}
-//   - sku, name, description, category, unit: string (name required 1..200)
-//   - quantity, reorderLevel, price, costPrice: number >= 0
-//   - imageUrl: string (optional; may be a base64 data URL, < ~1MB doc cap)
-//   - supplierId: string (optional)
-//   - createdAt, updatedAt: timestamp
+// DATA MODEL
+//   profiles/{uid}                 minimal public profile (any signed-in user reads)
+//   verifications/{uid}            PRIVATE KYC summary (owner only; last-4 digits only)
+//   contracts/{cid}                agreement header (locked once active)
+//   contracts/{cid}/milestones/{m} one doc per stage — role-gated state machine
+//   contracts/{cid}/events/{e}     append-only audit trail, server-timestamped
 //
-// Subcollection: users/{userId}/sales/{saleId}
-//   - invoiceNumber: string; customerId, customerName: string (optional)
-//   - items: list (<= 100 line items)
-//   - subtotal, tax, total: number >= 0
-//   - paymentMethod: 'cash'|'card'|'mobile'|'credit'
-//   - status: 'paid'|'pending'|'overdue'
-//   - createdAt: timestamp; dueDate: timestamp (optional)
-//
-// Subcollection: users/{userId}/suppliers/{supplierId}
-//   - name: string 1..200; contactPerson, email, phone, address: string
-//   - productsSupplied: list (<= 200); rating: number 0..5
-//   - lastOrderDate: timestamp (optional)
-//
-// Subcollection: users/{userId}/cashflow/{entryId}
-//   - date: timestamp; type: 'income'|'expense'
-//   - category, description: string; amount: number >= 0
-//   - reference: string (optional)
-//
-// Subcollection: users/{userId}/stockMovements/{movementId}
-//   - productId: string; type: 'in'|'out'|'adjustment'
-//   - quantity: number >= 0; reason: string; reference: string (optional)
-//   - createdAt: timestamp
-//
-// All user data is strictly private to its owner.
-//
-// Collection: storefronts  (PUBLIC READ — explicit product feature)
-// Document ID: {slug} — first-come-first-served, claimed at publish time
-// Fields:
-//   - ownerUid: string (required, immutable) — uid of the publishing user
-//   - name: string (required 1..200); tagline, description, phone, email,
-//     address: strings (bounded)
-//   - socialLinks: map (optional) — whatsapp / instagram / facebook
-//   - products: list (<= 200) — snapshot of in-stock catalogue items
-//   - publishedAt, updatedAt: timestamp
-// Publishing is an explicit owner action (Share/Open store button); the
-// document intentionally contains only business contact info the owner
-// chose to put on their public storefront.
-// ===============================================================
+// INVARIANTS ENFORCED HERE
+//   • Only the SME edits terms, and only while status == 'draft'.
+//   • 'proposed' terms are frozen: SME may only withdraw or cancel.
+//   • Only the invited buyer (matching email) can accept; acceptance sets
+//     buyerUid to the caller, status 'active', and lockedAt = server time.
+//   • After activation, milestone amounts/terms cannot change at all.
+//   • SME: pending → evidence_submitted (must attach evidence) / withdraw.
+//     Buyer: evidence_submitted → approved | pending(reject); approved → paid.
+//     Either: evidence_submitted|approved → disputed. Resolve → pending
+//     (either) or → approved (buyer only).
+//   • Every timestamp that matters equals request.time (no client clocks).
+//   • Audit events: create-only, actor must be caller, never updated/deleted.
+//   • Clients may never set verificationStatus to 'verified'.
+//   • Every string/list/map has a hard size cap (mirrors src/types LIMITS).
+// =====================================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
+    // ───────────────────────── Helpers ─────────────────────────────
 
-    function isAuthenticated() {
+    function isAuthed() {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    function uid() {
+      return request.auth.uid;
     }
 
-    function validString(v, minLen, maxLen) {
-      return v is string && v.size() >= minLen && v.size() <= maxLen;
+    function callerEmail() {
+      return ('email' in request.auth.token) ? request.auth.token.email.lower() : '';
     }
 
-    function optionalString(data, field, maxLen) {
-      return !(field in data) || validString(data[field], 0, maxLen);
+    function strLen(v, min, max) {
+      return v is string && v.size() >= min && v.size() <= max;
     }
 
-    function nonNegativeNumber(v) {
-      return v is number && v >= 0;
+    function optStr(v, max) {
+      return v == null || (v is string && v.size() <= max);
     }
 
-    function optionalTimestamp(data, field) {
-      return !(field in data) || data[field] is timestamp;
+    function optTs(v) {
+      return v == null || v is timestamp;
     }
 
-    // ===============================================================
-    // Domain Validators (used in BOTH create and update)
-    // ===============================================================
-
-    function isValidUserDoc(data) {
-      return data.keys().hasOnly(['seeded', 'createdAt', 'businessProfile', 'storefrontSlug']) &&
-        data.seeded == true &&
-        data.createdAt is timestamp &&
-        optionalString(data, 'storefrontSlug', 80) &&
-        data.businessProfile is map &&
-        data.businessProfile.keys().hasOnly([
-          'name', 'tagline', 'description', 'logo', 'coverImage',
-          'phone', 'email', 'address', 'socialLinks'
-        ]) &&
-        validString(data.businessProfile.name, 1, 200);
+    function isEmail(v) {
+      return v is string && v.size() >= 5 && v.size() <= 254 &&
+        v.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$') && v == v.lower();
     }
 
-    function isValidProduct(data) {
-      return data.keys().hasOnly([
-          'sku', 'name', 'description', 'category', 'quantity', 'reorderLevel',
-          'price', 'costPrice', 'unit', 'imageUrl', 'supplierId',
-          'createdAt', 'updatedAt'
-        ]) &&
-        validString(data.name, 1, 200) &&
-        validString(data.sku, 0, 100) &&
-        validString(data.description, 0, 2000) &&
-        validString(data.category, 0, 100) &&
-        validString(data.unit, 0, 50) &&
-        nonNegativeNumber(data.quantity) &&
-        nonNegativeNumber(data.reorderLevel) &&
-        nonNegativeNumber(data.price) &&
-        nonNegativeNumber(data.costPrice) &&
-        optionalString(data, 'imageUrl', 1000000) &&
-        optionalString(data, 'supplierId', 100) &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
+    function isIsoDate(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
     }
 
-    function isValidSale(data) {
-      return data.keys().hasOnly([
-          'invoiceNumber', 'customerId', 'customerName', 'items', 'subtotal',
-          'tax', 'total', 'paymentMethod', 'status', 'createdAt', 'dueDate'
-        ]) &&
-        validString(data.invoiceNumber, 0, 100) &&
-        optionalString(data, 'customerId', 100) &&
-        optionalString(data, 'customerName', 200) &&
-        data.items is list && data.items.size() <= 100 &&
-        nonNegativeNumber(data.subtotal) &&
-        nonNegativeNumber(data.tax) &&
-        nonNegativeNumber(data.total) &&
-        data.paymentMethod in ['cash', 'card', 'mobile', 'credit'] &&
-        data.status in ['paid', 'pending', 'overdue'] &&
-        data.createdAt is timestamp &&
-        optionalTimestamp(data, 'dueDate');
+    function isMoney(v, max) {
+      return v is number && v >= 0 && v <= max;
     }
 
-    function isValidSupplier(data) {
-      return data.keys().hasOnly([
-          'name', 'contactPerson', 'email', 'phone', 'address',
-          'productsSupplied', 'lastOrderDate', 'rating'
-        ]) &&
-        validString(data.name, 1, 200) &&
-        validString(data.contactPerson, 0, 200) &&
-        validString(data.email, 0, 320) &&
-        validString(data.phone, 0, 50) &&
-        validString(data.address, 0, 500) &&
-        data.productsSupplied is list && data.productsSupplied.size() <= 200 &&
-        data.rating is number && data.rating >= 0 && data.rating <= 5 &&
-        optionalTimestamp(data, 'lastOrderDate');
+    function profilePath(u) {
+      return /databases/$(database)/documents/profiles/$(u);
     }
 
-    function isValidCashFlowEntry(data) {
-      return data.keys().hasOnly([
-          'date', 'type', 'category', 'description', 'amount', 'reference'
-        ]) &&
-        data.date is timestamp &&
-        data.type in ['income', 'expense'] &&
-        validString(data.category, 0, 100) &&
-        validString(data.description, 0, 1000) &&
-        nonNegativeNumber(data.amount) &&
-        optionalString(data, 'reference', 200);
+    // A participant must have at least submitted verification (status
+    // 'pending') before they can create or accept a payment agreement.
+    // 'verified' can only ever be written server-side (Admin SDK).
+    function hasSubmittedVerification(u) {
+      return exists(profilePath(u)) &&
+        get(profilePath(u)).data.verificationStatus in ['pending', 'verified'];
     }
 
-    function isValidStockMovement(data) {
-      return data.keys().hasOnly([
-          'productId', 'type', 'quantity', 'reason', 'reference', 'createdAt'
-        ]) &&
-        validString(data.productId, 1, 100) &&
-        data.type in ['in', 'out', 'adjustment'] &&
-        nonNegativeNumber(data.quantity) &&
-        validString(data.reason, 0, 500) &&
-        optionalString(data, 'reference', 200) &&
-        data.createdAt is timestamp;
+    function contractPath(cid) {
+      return /databases/$(database)/documents/contracts/$(cid);
     }
 
-    function isValidStorefront(data) {
-      return data.keys().hasOnly([
-          'ownerUid', 'name', 'tagline', 'description', 'phone', 'email',
-          'address', 'socialLinks', 'products', 'publishedAt', 'updatedAt'
-        ]) &&
-        validString(data.ownerUid, 1, 128) &&
-        validString(data.name, 1, 200) &&
-        validString(data.tagline, 0, 300) &&
-        validString(data.description, 0, 2000) &&
-        validString(data.phone, 0, 50) &&
-        validString(data.email, 0, 320) &&
-        validString(data.address, 0, 500) &&
-        (!('socialLinks' in data) ||
-          (data.socialLinks is map &&
-            data.socialLinks.keys().hasOnly(['whatsapp', 'instagram', 'facebook']))) &&
-        data.products is list && data.products.size() <= 200 &&
-        data.publishedAt is timestamp &&
-        data.updatedAt is timestamp;
+    // Current view of the parent contract — used by read rules.
+    function parentNow(cid) {
+      return get(contractPath(cid)).data;
     }
 
-    // ===============================================================
-    // Rules — all data strictly scoped to its owner
-    // ===============================================================
+    // Post-batch view of the parent contract — used by write rules so a
+    // contract and its milestones/events can be created atomically in one
+    // batch. Safe because the contract write in that batch is itself
+    // validated by the contract rules above.
+    function parentAfter(cid) {
+      return getAfter(contractPath(cid)).data;
+    }
 
-    match /users/{userId} {
-      allow read: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUserDoc(request.resource.data);
-      allow update: if isOwner(userId) && isValidUserDoc(request.resource.data);
+    function isSmeOf(c) {
+      return c.smeUid == uid();
+    }
+
+    function isBuyerOf(c) {
+      return c.buyerUid != null && c.buyerUid == uid();
+    }
+
+    function isInvitedBuyerOf(c) {
+      return c.buyerUid == null && c.buyerEmail == callerEmail() && callerEmail() != '';
+    }
+
+    // Drafts are private to the SME. Invited buyers see the proposal only.
+    function canReadContract(c) {
+      return isSmeOf(c) || isBuyerOf(c) || (isInvitedBuyerOf(c) && c.status == 'proposed');
+    }
+
+    function isActorOn(c) {
+      return isSmeOf(c) || isBuyerOf(c) || isInvitedBuyerOf(c);
+    }
+
+    // ───────────────────────── Shapes ──────────────────────────────
+
+    function validPaymentInstructions(p) {
+      return p is map &&
+        p.keys().hasOnly(['method', 'accountHolder', 'bankName', 'accountNumber', 'branchCode', 'payshapId']) &&
+        p.method in ['eft', 'payshap'] &&
+        strLen(p.accountHolder, 1, 120) &&
+        (!('bankName' in p) || strLen(p.bankName, 0, 64)) &&
+        (!('accountNumber' in p) || strLen(p.accountNumber, 0, 32)) &&
+        (!('branchCode' in p) || strLen(p.branchCode, 0, 16)) &&
+        (!('payshapId' in p) || strLen(p.payshapId, 0, 64));
+    }
+
+    function contractKeys() {
+      return ['smeUid', 'smeName', 'buyerUid', 'buyerEmail', 'buyerName', 'title', 'scope',
+              'totalValue', 'currency', 'expectedDelivery', 'paymentInstructions', 'disputeRules',
+              'status', 'milestoneCount', 'smeAcceptedAt', 'buyerAcceptedAt', 'lockedAt',
+              'completedAt', 'cancelledBy', 'cancelReason', 'createdAt', 'updatedAt'];
+    }
+
+    function validContractShape(d) {
+      return d.keys().hasOnly(contractKeys()) && d.keys().hasAll(contractKeys()) &&
+        d.smeUid is string && strLen(d.smeName, 1, 120) &&
+        (d.buyerUid == null || d.buyerUid is string) &&
+        isEmail(d.buyerEmail) && strLen(d.buyerName, 0, 120) &&
+        strLen(d.title, 1, 120) && strLen(d.scope, 0, 2000) &&
+        d.totalValue is number && d.totalValue > 0 && d.totalValue <= 100000000 &&
+        d.currency == 'ZAR' && isIsoDate(d.expectedDelivery) &&
+        validPaymentInstructions(d.paymentInstructions) &&
+        strLen(d.disputeRules, 0, 2000) &&
+        d.status in ['draft', 'proposed', 'active', 'completed', 'cancelled'] &&
+        d.milestoneCount is int && d.milestoneCount >= 1 && d.milestoneCount <= 12 &&
+        optTs(d.smeAcceptedAt) && optTs(d.buyerAcceptedAt) && optTs(d.lockedAt) &&
+        optTs(d.completedAt) && optStr(d.cancelledBy, 128) && optStr(d.cancelReason, 300) &&
+        d.createdAt is timestamp && d.updatedAt is timestamp;
+    }
+
+    function validEvidence(e) {
+      return e is map &&
+        e.keys().hasOnly(['type', 'note', 'fileName', 'dataUrl', 'submittedBy', 'submittedAt']) &&
+        e.keys().hasAll(['type', 'note', 'fileName', 'dataUrl', 'submittedBy', 'submittedAt']) &&
+        e.type in ['buyer_acknowledgement', 'delivery_confirmation', 'job_card', 'photo', 'document', 'other'] &&
+        strLen(e.note, 0, 2000) && optStr(e.fileName, 160) &&
+        (e.dataUrl == null || (e.dataUrl is string && e.dataUrl.size() <= 700000 &&
+          e.dataUrl.matches('^data:(image/(png|jpeg|jpg|webp)|application/pdf);base64,.*'))) &&
+        e.submittedBy is string && e.submittedAt is timestamp;
+    }
+
+    function milestoneKeys() {
+      return ['contractId', 'order', 'title', 'percent', 'amount', 'dueCondition', 'acceptanceRule',
+              'status', 'evidence', 'rejectionNote', 'approvedAt', 'paidAt', 'paymentReference',
+              'disputeReason', 'disputedBy', 'disputedAt', 'resolutionNote', 'resolvedBy',
+              'resolvedAt', 'updatedAt'];
+    }
+
+    function validMilestoneShape(d, cid) {
+      return d.keys().hasOnly(milestoneKeys()) && d.keys().hasAll(milestoneKeys()) &&
+        d.contractId == cid &&
+        d.order is int && d.order >= 0 && d.order < 12 &&
+        strLen(d.title, 1, 120) &&
+        d.percent is number && d.percent >= 0 && d.percent <= 100 &&
+        isMoney(d.amount, 100000000) &&
+        strLen(d.dueCondition, 0, 300) && strLen(d.acceptanceRule, 0, 300) &&
+        d.status in ['pending', 'evidence_submitted', 'approved', 'paid', 'disputed'] &&
+        (d.evidence == null || validEvidence(d.evidence)) &&
+        optStr(d.rejectionNote, 300) && optTs(d.approvedAt) && optTs(d.paidAt) &&
+        optStr(d.paymentReference, 64) && optStr(d.disputeReason, 2000) &&
+        optStr(d.disputedBy, 128) && optTs(d.disputedAt) && optStr(d.resolutionNote, 2000) &&
+        optStr(d.resolvedBy, 128) && optTs(d.resolvedAt) && d.updatedAt is timestamp;
+    }
+
+    // A freshly authored milestone (draft phase) carries no workflow state.
+    function isCleanMilestone(d) {
+      return d.status == 'pending' && d.evidence == null && d.rejectionNote == null &&
+        d.approvedAt == null && d.paidAt == null && d.paymentReference == null &&
+        d.disputeReason == null && d.disputedBy == null && d.disputedAt == null &&
+        d.resolutionNote == null && d.resolvedBy == null && d.resolvedAt == null;
+    }
+
+    // ───────────────────────── profiles ────────────────────────────
+
+    match /profiles/{pid} {
+      allow read: if isAuthed();
+
+      allow create: if isAuthed() && uid() == pid &&
+        request.resource.data.keys().hasOnly(['uid', 'businessName', 'verificationStatus', 'createdAt']) &&
+        request.resource.data.keys().hasAll(['uid', 'businessName', 'verificationStatus', 'createdAt']) &&
+        request.resource.data.uid == pid &&
+        strLen(request.resource.data.businessName, 1, 120) &&
+        request.resource.data.verificationStatus in ['unverified', 'pending'] &&
+        request.resource.data.createdAt == request.time;
+
+      allow update: if isAuthed() && uid() == pid &&
+        request.resource.data.keys().hasOnly(['uid', 'businessName', 'verificationStatus', 'createdAt']) &&
+        request.resource.data.uid == pid &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        strLen(request.resource.data.businessName, 1, 120) &&
+        // A client can move to 'pending' but can never grant itself 'verified'.
+        (request.resource.data.verificationStatus in ['unverified', 'pending'] ||
+         request.resource.data.verificationStatus == resource.data.verificationStatus);
+
+      allow delete: if false;
+    }
+
+    // ─────────────────────── verifications ─────────────────────────
+    // Owner-only. Stores only last-4 digits of identity/bank numbers.
+
+    function verificationKeys() {
+      return ['legalName', 'tradingName', 'registrationNumber', 'taxNumber', 'ownerFullName',
+              'ownerIdLast4', 'phone', 'email', 'address', 'bankName', 'accountHolder',
+              'accountNumberLast4', 'status', 'submittedAt', 'updatedAt'];
+    }
+
+    function validVerification(d) {
+      return d.keys().hasOnly(verificationKeys()) && d.keys().hasAll(verificationKeys()) &&
+        strLen(d.legalName, 1, 160) && strLen(d.tradingName, 0, 160) &&
+        strLen(d.registrationNumber, 0, 40) && strLen(d.taxNumber, 0, 40) &&
+        strLen(d.ownerFullName, 1, 160) &&
+        d.ownerIdLast4 is string && d.ownerIdLast4.matches('^[0-9]{4}$') &&
+        strLen(d.phone, 0, 32) && (d.email == '' || isEmail(d.email)) &&
+        strLen(d.address, 0, 300) && strLen(d.bankName, 0, 64) &&
+        strLen(d.accountHolder, 0, 120) &&
+        d.accountNumberLast4 is string && d.accountNumberLast4.matches('^[0-9]{4}$') &&
+        d.status in ['unverified', 'pending', 'verified'] &&
+        optTs(d.submittedAt) && d.updatedAt == request.time;
+    }
+
+    match /verifications/{vid} {
+      allow read: if isAuthed() && uid() == vid;
+
+      allow create: if isAuthed() && uid() == vid &&
+        validVerification(request.resource.data) &&
+        request.resource.data.status in ['unverified', 'pending'] &&
+        request.resource.data.submittedAt == request.time;
+
+      allow update: if isAuthed() && uid() == vid &&
+        validVerification(request.resource.data) &&
+        (request.resource.data.status in ['unverified', 'pending'] ||
+         request.resource.data.status == resource.data.status) &&
+        (request.resource.data.submittedAt == request.time ||
+         request.resource.data.submittedAt == resource.data.submittedAt);
+
+      allow delete: if false;
+    }
+
+    // ───────────────────────── contracts ───────────────────────────
+
+    match /contracts/{cid} {
+
+      allow read: if isAuthed() && canReadContract(resource.data);
+
+      // Only an SME with submitted verification may author an agreement.
+      allow create: if isAuthed() &&
+        validContractShape(request.resource.data) &&
+        request.resource.data.smeUid == uid() &&
+        hasSubmittedVerification(uid()) &&
+        request.resource.data.buyerUid == null &&
+        request.resource.data.status in ['draft', 'proposed'] &&
+        (
+          (request.resource.data.status == 'draft' && request.resource.data.smeAcceptedAt == null) ||
+          (request.resource.data.status == 'proposed' && request.resource.data.smeAcceptedAt == request.time)
+        ) &&
+        request.resource.data.buyerAcceptedAt == null &&
+        request.resource.data.lockedAt == null &&
+        request.resource.data.completedAt == null &&
+        request.resource.data.cancelledBy == null &&
+        request.resource.data.cancelReason == null &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+
+      allow update: if isAuthed() && validContractShape(request.resource.data) &&
+        request.resource.data.updatedAt == request.time &&
+        // Identity and origin never change.
+        request.resource.data.smeUid == resource.data.smeUid &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        (
+          smeEditsDraft() || smeProposes() || smeWithdraws() || smeCancelsBeforeLock() ||
+          buyerAccepts() || buyerDeclines() || participantClosesActive()
+        );
+
+      // History is immutable — agreements are cancelled, never deleted.
       allow delete: if false;
 
-      match /products/{productId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidProduct(request.resource.data);
-        allow update: if isOwner(userId) && isValidProduct(request.resource.data);
-        allow delete: if isOwner(userId);
+      // ── SME, draft only: free to edit terms. Buyer identity stays null.
+      function smeEditsDraft() {
+        return isSmeOf(resource.data) &&
+          resource.data.status == 'draft' &&
+          request.resource.data.status == 'draft' &&
+          request.resource.data.buyerUid == null &&
+          request.resource.data.smeAcceptedAt == null &&
+          request.resource.data.buyerAcceptedAt == null &&
+          request.resource.data.lockedAt == null &&
+          request.resource.data.completedAt == null &&
+          request.resource.data.cancelledBy == null &&
+          request.resource.data.cancelReason == null;
       }
 
-      match /sales/{saleId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidSale(request.resource.data);
-        allow update: if isOwner(userId) && isValidSale(request.resource.data);
-        allow delete: if isOwner(userId);
+      // ── SME accepts the terms and sends them to the buyer. Terms freeze.
+      function smeProposes() {
+        return isSmeOf(resource.data) &&
+          resource.data.status == 'draft' &&
+          request.resource.data.status == 'proposed' &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'smeAcceptedAt', 'updatedAt']) &&
+          request.resource.data.smeAcceptedAt == request.time;
       }
 
-      match /suppliers/{supplierId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidSupplier(request.resource.data);
-        allow update: if isOwner(userId) && isValidSupplier(request.resource.data);
-        allow delete: if isOwner(userId);
+      // ── SME pulls a proposal back to draft (buyer has not accepted).
+      function smeWithdraws() {
+        return isSmeOf(resource.data) &&
+          resource.data.status == 'proposed' &&
+          request.resource.data.status == 'draft' &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'smeAcceptedAt', 'updatedAt']) &&
+          request.resource.data.smeAcceptedAt == null;
       }
 
-      match /cashflow/{entryId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidCashFlowEntry(request.resource.data);
-        allow update: if isOwner(userId) && isValidCashFlowEntry(request.resource.data);
-        allow delete: if isOwner(userId);
+      function smeCancelsBeforeLock() {
+        return isSmeOf(resource.data) &&
+          resource.data.status in ['draft', 'proposed'] &&
+          request.resource.data.status == 'cancelled' &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'cancelledBy', 'cancelReason', 'updatedAt']) &&
+          request.resource.data.cancelledBy == uid() &&
+          strLen(request.resource.data.cancelReason, 1, 300);
       }
 
-      match /stockMovements/{movementId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidStockMovement(request.resource.data);
-        allow update: if isOwner(userId) && isValidStockMovement(request.resource.data);
-        allow delete: if isOwner(userId);
+      // ── The invited buyer claims and accepts. This is the LOCK moment.
+      function buyerAccepts() {
+        return isInvitedBuyerOf(resource.data) &&
+          resource.data.status == 'proposed' &&
+          hasSubmittedVerification(uid()) &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['buyerUid', 'buyerName', 'buyerAcceptedAt', 'lockedAt', 'status', 'updatedAt']) &&
+          request.resource.data.buyerUid == uid() &&
+          strLen(request.resource.data.buyerName, 1, 120) &&
+          request.resource.data.status == 'active' &&
+          request.resource.data.buyerAcceptedAt == request.time &&
+          request.resource.data.lockedAt == request.time;
+      }
+
+      function buyerDeclines() {
+        return isInvitedBuyerOf(resource.data) &&
+          resource.data.status == 'proposed' &&
+          request.resource.data.status == 'cancelled' &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'cancelledBy', 'cancelReason', 'updatedAt']) &&
+          request.resource.data.cancelledBy == uid() &&
+          strLen(request.resource.data.cancelReason, 1, 300);
+      }
+
+      // ── Once active, the only header changes are close-out or cancellation.
+      //    Every term (parties, value, schedule) is immutable.
+      function participantClosesActive() {
+        return (isSmeOf(resource.data) || isBuyerOf(resource.data)) &&
+          resource.data.status == 'active' &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'completedAt', 'cancelledBy', 'cancelReason', 'updatedAt']) &&
+          (
+            (request.resource.data.status == 'completed' &&
+             request.resource.data.completedAt == request.time &&
+             request.resource.data.cancelledBy == null &&
+             request.resource.data.cancelReason == null) ||
+            (request.resource.data.status == 'cancelled' &&
+             request.resource.data.completedAt == null &&
+             request.resource.data.cancelledBy == uid() &&
+             strLen(request.resource.data.cancelReason, 1, 300))
+          );
+      }
+
+      // ─────────────────────── milestones ────────────────────────
+
+      match /milestones/{mid} {
+
+        allow read: if isAuthed() && canReadContract(parentNow(cid));
+
+        // Authoring — SME, parent must be (or be becoming) a draft.
+        allow create: if isAuthed() &&
+          parentAfter(cid).smeUid == uid() &&
+          parentAfter(cid).status == 'draft' &&
+          validMilestoneShape(request.resource.data, cid) &&
+          isCleanMilestone(request.resource.data) &&
+          request.resource.data.updatedAt == request.time;
+
+        allow delete: if isAuthed() &&
+          parentAfter(cid).smeUid == uid() &&
+          parentAfter(cid).status == 'draft';
+
+        allow update: if isAuthed() &&
+          validMilestoneShape(request.resource.data, cid) &&
+          request.resource.data.updatedAt == request.time &&
+          (
+            smeEditsMilestoneTerms() ||
+            (parentAfter(cid).status == 'active' && (
+              smeSubmitsEvidence() || smeWithdrawsEvidence() ||
+              buyerApproves() || buyerRejectsEvidence() || buyerRecordsPayment() ||
+              participantRaisesDispute() || participantResolvesDispute()
+            ))
+          );
+
+        function m() { return resource.data; }
+        function n() { return request.resource.data; }
+        function changed() { return n().diff(m()).affectedKeys(); }
+        function smeHere() { return parentAfter(cid).smeUid == uid(); }
+        function buyerHere() { return parentAfter(cid).buyerUid == uid(); }
+
+        // Terms editable only while the agreement is a draft.
+        function smeEditsMilestoneTerms() {
+          return smeHere() && parentAfter(cid).status == 'draft' && isCleanMilestone(n());
+        }
+
+        // SME: pending → evidence_submitted. Evidence is mandatory and stamped.
+        function smeSubmitsEvidence() {
+          return smeHere() &&
+            m().status == 'pending' && n().status == 'evidence_submitted' &&
+            changed().hasOnly(['status', 'evidence', 'rejectionNote', 'updatedAt']) &&
+            n().evidence != null &&
+            n().evidence.submittedBy == uid() &&
+            n().evidence.submittedAt == request.time &&
+            n().rejectionNote == null;
+        }
+
+        // SME: evidence_submitted → pending (take it back before review).
+        function smeWithdrawsEvidence() {
+          return smeHere() &&
+            m().status == 'evidence_submitted' && n().status == 'pending' &&
+            changed().hasOnly(['status', 'evidence', 'updatedAt']) &&
+            n().evidence == null;
+        }
+
+        // Buyer: evidence_submitted → approved. Payment request goes live.
+        function buyerApproves() {
+          return buyerHere() &&
+            m().status == 'evidence_submitted' && n().status == 'approved' &&
+            changed().hasOnly(['status', 'approvedAt', 'updatedAt']) &&
+            n().approvedAt == request.time;
+        }
+
+        // Buyer: evidence_submitted → pending with a written reason. Evidence
+        // is retained for the record; the SME's resubmission replaces it.
+        function buyerRejectsEvidence() {
+          return buyerHere() &&
+            m().status == 'evidence_submitted' && n().status == 'pending' &&
+            changed().hasOnly(['status', 'rejectionNote', 'updatedAt']) &&
+            strLen(n().rejectionNote, 1, 300);
+        }
+
+        // Buyer: approved → paid, with the bank/PayShap reference.
+        function buyerRecordsPayment() {
+          return buyerHere() &&
+            m().status == 'approved' && n().status == 'paid' &&
+            changed().hasOnly(['status', 'paidAt', 'paymentReference', 'updatedAt']) &&
+            n().paidAt == request.time &&
+            strLen(n().paymentReference, 1, 64);
+        }
+
+        // Either party may dispute a stage that is under review or awaiting payment.
+        function participantRaisesDispute() {
+          return (smeHere() || buyerHere()) &&
+            m().status in ['evidence_submitted', 'approved'] && n().status == 'disputed' &&
+            changed().hasOnly(['status', 'disputeReason', 'disputedBy', 'disputedAt', 'updatedAt']) &&
+            strLen(n().disputeReason, 1, 2000) &&
+            n().disputedBy == uid() &&
+            n().disputedAt == request.time;
+        }
+
+        // Resolution back to 'pending' (rework) may come from either side.
+        // Resolution to 'approved' commits the buyer to pay, so only the buyer may do it.
+        function participantResolvesDispute() {
+          return (smeHere() || buyerHere()) &&
+            m().status == 'disputed' &&
+            changed().hasOnly(['status', 'resolutionNote', 'resolvedBy', 'resolvedAt', 'approvedAt', 'updatedAt']) &&
+            strLen(n().resolutionNote, 1, 2000) &&
+            n().resolvedBy == uid() &&
+            n().resolvedAt == request.time &&
+            (
+              (n().status == 'pending' && n().approvedAt == null) ||
+              (n().status == 'approved' && buyerHere() && n().approvedAt == request.time)
+            );
+        }
+      }
+
+      // ─────────────────────── audit events ──────────────────────
+      // Append-only. The actor is always the caller; the clock is the server.
+
+      match /events/{eid} {
+        allow read: if isAuthed() && canReadContract(parentNow(cid));
+
+        allow create: if isAuthed() &&
+          isActorOn(parentAfter(cid)) &&
+          request.resource.data.keys().hasOnly(['type', 'actorUid', 'actorRole', 'milestoneId', 'summary', 'at']) &&
+          request.resource.data.keys().hasAll(['type', 'actorUid', 'actorRole', 'milestoneId', 'summary', 'at']) &&
+          request.resource.data.type in [
+            'contract_created', 'contract_proposed', 'contract_withdrawn', 'contract_accepted',
+            'contract_declined', 'contract_cancelled', 'contract_completed',
+            'milestone_evidence_submitted', 'milestone_evidence_withdrawn', 'milestone_rejected',
+            'milestone_approved', 'milestone_paid', 'milestone_disputed', 'milestone_dispute_resolved'
+          ] &&
+          request.resource.data.actorUid == uid() &&
+          request.resource.data.actorRole in ['sme', 'buyer'] &&
+          optStr(request.resource.data.milestoneId, 64) &&
+          strLen(request.resource.data.summary, 1, 500) &&
+          request.resource.data.at == request.time;
+
+        allow update, delete: if false;
       }
     }
 
-    // ===============================================================
-    // Public storefronts — the ONLY publicly readable collection.
-    // Read access is intentional: these documents exist to be shared
-    // (the "store link" feature) and are only created by an explicit
-    // owner publish action. Writes are owner-only, ownership is
-    // immutable, and slugs are first-come-first-served.
-    // ===============================================================
-
-    match /storefronts/{slug} {
-      allow read: if true;
-      allow create: if isAuthenticated() &&
-        request.resource.data.ownerUid == request.auth.uid &&
-        isValidStorefront(request.resource.data);
-      allow update: if isAuthenticated() &&
-        resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.ownerUid == resource.data.ownerUid &&
-        isValidStorefront(request.resource.data);
-      allow delete: if isAuthenticated() && resource.data.ownerUid == request.auth.uid;
-    }
-
-    // Default deny — anything not matched above is inaccessible.
+    // ───────────────────── Default deny ────────────────────────────
+    // Legacy POS collections (users/*, storefronts/*) are intentionally
+    // no longer reachable.
     match /{document=**} {
       allow read, write: if false;
     }

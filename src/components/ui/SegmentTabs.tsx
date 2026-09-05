@@ -35,7 +35,7 @@ export const SegmentTabs: React.FC<SegmentTabsProps> = ({ tabs, value, onChange,
   return (
     <div
       ref={listRef}
-      className={cn('relative inline-flex items-center gap-1 rounded-full bg-surface-inset/60 p-1', className)}
+      className={cn('relative inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-inset/60 p-1', className)}
     >
       {/* Sliding indicator */}
       <span

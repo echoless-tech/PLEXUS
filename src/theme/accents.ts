@@ -23,7 +23,7 @@ export const ACCENT_THEMES: Record<AccentThemeKey, AccentTheme> = {
   clay: {
     key: 'clay',
     label: 'Clay',
-    description: 'Warm burnt terracotta — the original NODAL accent.',
+    description: 'Warm burnt terracotta — the original PLEXUS accent.',
     light: {
       accent: '#bb5a3c',
       accentContrast: '#fbf8f1',
@@ -109,7 +109,7 @@ export const ACCENT_THEMES: Record<AccentThemeKey, AccentTheme> = {
 
 export const ACCENT_THEME_LIST: AccentTheme[] = Object.values(ACCENT_THEMES);
 
-const STORAGE_KEY = 'nodal-accent-theme';
+const STORAGE_KEY = 'plexus-accent-theme';
 
 export const getStoredAccentTheme = (): AccentThemeKey => {
   if (typeof localStorage === 'undefined') return 'clay';

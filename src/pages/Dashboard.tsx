@@ -1,348 +1,184 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
-import {
-  ArrowUpRight,
-  Plus,
-  RefreshCw,
-  TriangleAlert,
-  Lightbulb,
-  TrendingUp,
-} from 'lucide-react';
-import { Tile, Label, StatHero, Sparkline, DotPlot, GhostButton } from '../components/ui';
-import type { DotPlotRow } from '../components/ui';
+import { FilePlus2, ShieldAlert, ArrowRight, Sparkles, Loader2 } from 'lucide-react';
+import { PageHeader, Tile, Button, Metric, Label } from '../components/ui';
 import { useAppStore } from '../stores/appStore';
-import { getStockStatus } from '../data';
-import { cn } from '../lib/cn';
+import { fetchMilestones, summarise, createContract } from '../services/contracts';
+import type { ContractView, Milestone } from '../types';
+import { zar } from '../lib/format';
+import { ContractRow } from './Contracts';
 
-const zar = (n: number) =>
-  new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: 'ZAR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(n);
-
-const zarCompact = (n: number) =>
-  n >= 1000 ? `R${(n / 1000).toFixed(1)}k` : `R${n.toFixed(0)}`;
-
+/**
+ * Dashboard = "what needs my action" + money position. It reads live
+ * milestones for the user's open agreements to compute paid / outstanding.
+ */
 const Dashboard: React.FC = () => {
-  const products = useAppStore((s) => s.products);
-  const sales = useAppStore((s) => s.sales);
-  const cashFlow = useAppStore((s) => s.cashFlow);
-  const showToast = useAppStore((s) => s.showToast);
   const navigate = useNavigate();
-  const [refreshing, setRefreshing] = React.useState(false);
+  const profile = useAppStore((s) => s.profile);
+  const contracts = useAppStore((s) => s.contracts);
+  const loading = useAppStore((s) => s.contractsLoading);
+  const loadContracts = useAppStore((s) => s.loadContracts);
+  const showToast = useAppStore((s) => s.showToast);
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    showToast('Refreshing cash movement…', 'info');
-    setTimeout(() => setRefreshing(false), 900);
+  const [milestonesByContract, setMbc] = useState<Record<string, Milestone[]>>({});
+  const [seeding, setSeeding] = useState(false);
+
+  const open = useMemo(() => contracts.filter((c) => c.status === 'active'), [contracts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        open.map(async (c) => [c.id, await fetchMilestones(c.id).catch(() => [] as Milestone[])] as const),
+      );
+      if (!cancelled) setMbc(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open.map((c) => c.id + c.updatedAt.getTime()).join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const money = useMemo(() => {
+    const asSme = summarise(open.filter((c) => c.myRole === 'sme').flatMap((c) => milestonesByContract[c.id] || []));
+    const asBuyer = summarise(open.filter((c) => c.myRole === 'buyer').flatMap((c) => milestonesByContract[c.id] || []));
+    return { asSme, asBuyer };
+  }, [open, milestonesByContract]);
+
+  const needsAction = useMemo(() => {
+    const items: { c: ContractView; label: string }[] = [];
+    for (const c of contracts) {
+      if (c.awaitingMyAcceptance) items.push({ c, label: 'Review and accept the proposal' });
+      else if (c.myRole === 'sme' && c.status === 'draft') items.push({ c, label: 'Finish and send this draft' });
+      else if (c.status === 'active') {
+        const ms = milestonesByContract[c.id] || [];
+        if (c.myRole === 'buyer' && ms.some((m) => m.status === 'evidence_submitted')) items.push({ c, label: 'Evidence waiting for your approval' });
+        else if (c.myRole === 'buyer' && ms.some((m) => m.status === 'approved')) items.push({ c, label: 'Approved stage — payment due' });
+        else if (c.myRole === 'sme' && ms.some((m) => m.status === 'pending' && m.rejectionNote)) items.push({ c, label: 'A stage was returned — resubmit evidence' });
+        else if (ms.some((m) => m.status === 'disputed')) items.push({ c, label: 'Open dispute needs resolution' });
+      }
+    }
+    return items;
+  }, [contracts, milestonesByContract]);
+
+  const loadExample = async () => {
+    setSeeding(true);
+    try {
+      const cid = await createContract(
+        {
+          title: 'Example — 200 branded staff uniforms',
+          scope:
+            'Supply and brand 200 staff uniforms (polo shirt + cap) for the buyer\'s retail team. Includes embroidery of the buyer logo, ' +
+            'sizing run, packing per store and delivery to the Johannesburg distribution centre.',
+          buyerEmail: 'buyer@example.co.za',
+          buyerName: 'Example Retail (Pty) Ltd',
+          totalValue: 40000,
+          expectedDelivery: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+          paymentInstructions: { method: 'eft', accountHolder: profile?.businessName || 'Supplier', bankName: 'FNB', accountNumber: '62000000000', branchCode: '250655' },
+          disputeRules:
+            'If a stage is disputed, both parties will first try to resolve it in writing within 5 business days. Payment for the disputed stage is paused until resolved; stages already paid are not reversed.',
+          milestones: [
+            { title: 'Commitment', percent: 30, dueCondition: 'Buyer accepts the order', acceptanceRule: 'Agreement accepted in PLEXUS' },
+            { title: 'Fabric & embroidery complete', percent: 30, dueCondition: 'First 100 units produced', acceptanceRule: 'Photos of finished units + signed job card' },
+            { title: 'Delivery', percent: 30, dueCondition: 'All 200 units delivered to DC', acceptanceRule: 'Delivery note acknowledged by buyer' },
+            { title: 'Close-out', percent: 10, dueCondition: 'Sizing swaps resolved', acceptanceRule: 'Buyer final acceptance' },
+          ],
+        },
+        profile?.businessName || 'Supplier',
+      );
+      await loadContracts();
+      showToast('Example agreement created as a draft — change the buyer email to a real one before sending.', 'success');
+      navigate(`/contracts/${cid}`);
+    } catch (e: any) {
+      showToast(e?.message || 'Could not create the example.', 'error');
+    } finally {
+      setSeeding(false);
+    }
   };
 
-  const totalRevenue = sales.filter((s) => s.status === 'paid').reduce((sum, s) => sum + s.total, 0);
-  const pendingOrders = sales.filter((s) => s.status === 'pending').length;
-  const overdueCount = sales.filter((s) => s.status === 'overdue').length;
-  const lowStock = products.filter((p) => getStockStatus(p.quantity, p.reorderLevel) !== 'in-stock');
-
-  // Margin across catalogue
-  const margin = React.useMemo(() => {
-    const rev = products.reduce((s, p) => s + p.price, 0);
-    const cost = products.reduce((s, p) => s + p.costPrice, 0);
-    return rev > 0 ? ((rev - cost) / rev) * 100 : 0;
-  }, [products]);
-
-  // 14-day income / expense series from cash flow
-  const { incomeSeries, expenseSeries } = React.useMemo(() => {
-    const inc: number[] = [];
-    const exp: number[] = [];
-    const today = new Date();
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const key = format(d, 'yyyy-MM-dd');
-      const dayInc = cashFlow
-        .filter((c) => format(new Date(c.date), 'yyyy-MM-dd') === key && c.type === 'income')
-        .reduce((s, c) => s + c.amount, 0);
-      const dayExp = cashFlow
-        .filter((c) => format(new Date(c.date), 'yyyy-MM-dd') === key && c.type === 'expense')
-        .reduce((s, c) => s + c.amount, 0);
-      inc.push(dayInc);
-      exp.push(dayExp);
-    }
-    return { incomeSeries: inc, expenseSeries: exp };
-  }, [cashFlow]);
-
-  const periodIncome = incomeSeries.reduce((s, v) => s + v, 0);
-  const periodExpense = expenseSeries.reduce((s, v) => s + v, 0);
-
-  const lowStockRows: DotPlotRow[] = lowStock.slice(0, 6).map((p) => {
-    const out = p.quantity === 0;
-    return {
-      label: p.name,
-      value: Math.min(1, p.quantity / p.reorderLevel),
-      readout: `${p.quantity}/${p.reorderLevel}`,
-      critical: out,
-    };
-  });
-
-  const recentSales = [...sales]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 6);
-
-  const insights = [
-    overdueCount > 0 && {
-      critical: true,
-      icon: <TriangleAlert size={15} strokeWidth={2} />,
-      text: `${overdueCount} invoice${overdueCount > 1 ? 's' : ''} overdue — chase ${zarCompact(
-        sales.filter((s) => s.status === 'overdue').reduce((a, s) => a + s.total, 0),
-      )} in receivables.`,
-    },
-    lowStock.length > 0 && {
-      critical: lowStock.some((p) => p.quantity === 0),
-      icon: <TrendingUp size={15} strokeWidth={2} />,
-      text: `${lowStock.length} product${lowStock.length > 1 ? 's' : ''} below reorder level — restock before the weekend peak.`,
-    },
-    {
-      critical: false,
-      icon: <Lightbulb size={15} strokeWidth={2} />,
-      text: `Catalogue margin sits at ${margin.toFixed(0)}% — ahead of the ${Math.max(
-        18,
-        Math.round(margin - 6),
-      )}% network median.`,
-    },
-  ].filter(Boolean) as { critical: boolean; icon: React.ReactNode; text: string }[];
-
-  const statusStyle = (status: string) =>
-    status === 'overdue'
-      ? 'text-accent'
-      : status === 'pending'
-        ? 'text-muted'
-        : 'text-positive';
+  const unverified = !profile || profile.verificationStatus === 'unverified';
 
   return (
-    <div className="animate-rise mx-auto max-w-[1400px]">
-      {/* Page intro */}
-      <div className="flex flex-wrap items-end justify-between gap-4 py-6">
-        <div>
-          <Label>
-            {format(new Date(), 'EEEE, d MMMM')}
-          </Label>
-          <h1 className="mt-2 text-[1.75rem] font-bold tracking-[-0.02em] text-ink sm:text-[2rem]">
-            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, Amara
-          </h1>
-        </div>
-        <button onClick={() => navigate('/sales')} className="neu inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-[0.8125rem] font-semibold text-canvas transition-[box-shadow,transform,opacity] hover:opacity-90">
-          <Plus size={16} strokeWidth={2.25} />
-          New sale
-        </button>
+    <div className="mx-auto max-w-5xl space-y-6">
+      <PageHeader
+        eyebrow="Overview"
+        title={`Welcome, ${profile?.businessName || 'there'}`}
+        subtitle="Get paid as the work progresses — not months after it's done."
+        actions={
+          <Button variant="accent" onClick={() => navigate('/contracts/new')}>
+            <FilePlus2 className="h-4 w-4" /> New agreement
+          </Button>
+        }
+      />
+
+      {unverified && (
+        <Tile interactive as="button" onClick={() => navigate('/verification')} className="w-full flex-row items-center gap-4 text-left">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-accent-soft text-accent">
+            <ShieldAlert className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[0.9375rem] font-semibold text-ink">Verify your business to create or accept agreements</p>
+            <p className="text-[0.8125rem] text-muted">Takes about a minute. Buyers and suppliers see each other's verification status.</p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-faint" />
+        </Tile>
+      )}
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Metric label="Received (as supplier)" value={zar(money.asSme.paid, false)} hint="paid to you" />
+        <Metric label="Still to receive" value={zar(money.asSme.outstanding, false)} hint={money.asSme.awaitingPayment ? `${zar(money.asSme.awaitingPayment, false)} approved` : undefined} accent={money.asSme.awaitingPayment > 0} />
+        <Metric label="Paid out (as buyer)" value={zar(money.asBuyer.paid, false)} hint="on approved stages" />
+        <Metric label="Active agreements" value={String(open.length)} hint={`${contracts.length} total`} />
       </div>
 
-      {/* Bento grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12 lg:auto-rows-[172px]">
-        {/* Hero — Total Revenue */}
-        <Tile span="sm:col-span-2 lg:col-span-5 lg:row-span-2">
-          <StatHero
-            label="Total revenue · paid"
-            value={zar(totalRevenue)}
-            change={12.5}
-            changeLabel="vs last week"
-            size="xl"
-          />
-          <div className="mt-6 text-muted">
-            <Sparkline
-              data={incomeSeries}
-              width={520}
-              height={56}
-              strokeWidth={1.75}
-              fill="var(--accent-soft)"
-              stroke="var(--accent)"
-              className="w-full"
-            />
-          </div>
-        </Tile>
-
-        {/* Credit score — terracotta critical callout */}
-        <Tile accent span="lg:col-span-3">
-          <div className="flex h-full flex-col justify-between">
-            <Label onAccent>Credit score</Label>
-            <div className="flex items-end justify-between">
-              <span className="tnum text-[3rem] font-bold leading-none tracking-[-0.02em] text-accent-contrast">
-                742
-              </span>
-              <span className="mb-1 rounded-full bg-accent-contrast/15 px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-accent-contrast">
-                Grade A
-              </span>
-            </div>
-          </div>
-        </Tile>
-
-        {/* Opportunities */}
-        <Tile span="lg:col-span-4">
-          <StatHero
-            label="Open opportunities"
-            value="+R12.9k"
-            change={4.2}
-            changeLabel="potential / month"
-            trend={[4, 6, 5, 8, 7, 9, 11, 10, 13]}
-            size="md"
-          />
-        </Tile>
-
-        {/* Margin */}
-        <Tile span="lg:col-span-4">
-          <StatHero label="Catalogue margin" value={`${margin.toFixed(0)}%`} change={1.8} changeLabel="vs last month" size="md" />
-        </Tile>
-
-        {/* Pending orders */}
-        <Tile span="lg:col-span-3">
-          <div className="flex h-full flex-col justify-between">
-            <Label>Pending orders</Label>
-            <div className="flex items-baseline gap-2">
-              <span className="tnum text-[2.5rem] font-bold leading-none text-ink">{pendingOrders}</span>
-              <span className="text-[0.8125rem] text-muted">awaiting payment</span>
-            </div>
-          </div>
-        </Tile>
-
-        {/* Revenue vs Expenses — quiet dual sparkline */}
-        <Tile span="sm:col-span-2 lg:col-span-5 lg:row-span-2" className="justify-between">
-          <div className="flex items-start justify-between">
-            <div>
-              <Label>Cash movement · 14 days</Label>
-              <p className="mt-3 tnum text-[1.875rem] font-bold leading-none text-ink">
-                {zar(periodIncome - periodExpense)}
-              </p>
-              <p className="mt-1.5 text-[0.8125rem] text-muted">net flow</p>
-            </div>
-            <GhostButton aria-label="Refresh" onClick={handleRefresh}>
-              <RefreshCw size={16} strokeWidth={1.75} className={cn(refreshing && 'animate-spin')} />
-            </GhostButton>
-          </div>
-
-          <div className="flex flex-col gap-5">
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <span className="flex items-center gap-2 text-[0.8125rem] text-muted">
-                  <span className="h-1.5 w-1.5 rounded-full bg-ink/70" />
-                  Income
-                </span>
-                <span className="tnum text-[0.8125rem] font-medium text-ink">{zar(periodIncome)}</span>
-              </div>
-              <Sparkline data={incomeSeries} width={520} height={40} stroke="var(--text)" strokeWidth={1.5} className="w-full" />
-            </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <span className="flex items-center gap-2 text-[0.8125rem] text-muted">
-                  <span className="h-1.5 w-1.5 rounded-full bg-faint" />
-                  Expenses
-                </span>
-                <span className="tnum text-[0.8125rem] font-medium text-muted">{zar(periodExpense)}</span>
-              </div>
-              <Sparkline data={expenseSeries} width={520} height={40} className="w-full text-faint" strokeWidth={1.5} showEndDot={false} />
-            </div>
-          </div>
-        </Tile>
-
-        {/* Low stock — dot plot */}
-        <Tile span="sm:col-span-2 lg:col-span-4 lg:row-span-2">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <Label>Low stock</Label>
-              <p className="mt-2 text-[0.8125rem] text-muted">{lowStock.length} items need attention</p>
-            </div>
-            {lowStock.some((p) => p.quantity === 0) && (
-              <span className="rounded-full bg-accent-soft px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-accent">
-                Critical
-              </span>
-            )}
-          </div>
-          {lowStockRows.length > 0 ? (
-            <DotPlot rows={lowStockRows} />
-          ) : (
-            <p className="py-8 text-center text-[0.875rem] text-muted">Everything is well stocked.</p>
-          )}
-        </Tile>
-
-        {/* AI insights */}
-        <Tile span="sm:col-span-2 lg:col-span-3 lg:row-span-2">
-          <div className="mb-5 flex items-center gap-2">
-            <span className="grid h-6 w-6 place-items-center rounded-full bg-accent-soft text-accent">
-              <Lightbulb size={14} strokeWidth={2} />
-            </span>
-            <Label>AI insights</Label>
-          </div>
-          <div className="flex flex-col gap-4">
-            {insights.map((ins, i) => (
-              <div key={i} className="flex gap-3">
-                <span className={cn('mt-0.5 shrink-0', ins.critical ? 'text-accent' : 'text-muted')}>
-                  {ins.icon}
-                </span>
-                <p className="text-[0.8125rem] leading-relaxed text-ink/85">{ins.text}</p>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label>Needs your action</Label>
+          {needsAction.length > 0 && <span className="text-[0.75rem] text-muted">{needsAction.length} item{needsAction.length === 1 ? '' : 's'}</span>}
+        </div>
+        {loading && contracts.length === 0 ? (
+          <Tile className="py-8 text-center text-sm text-muted">Loading…</Tile>
+        ) : needsAction.length === 0 ? (
+          <Tile className="py-8 text-center text-sm text-muted">You're all caught up.</Tile>
+        ) : (
+          <div className="space-y-2.5">
+            {needsAction.map(({ c, label }) => (
+              <div key={c.id} className="space-y-1">
+                <p className="pl-1 text-[0.75rem] font-semibold text-accent">{label}</p>
+                <ContractRow c={c} onOpen={() => navigate(`/contracts/${c.id}`)} />
               </div>
             ))}
           </div>
-        </Tile>
+        )}
       </div>
 
-      {/* Recent sales — quiet table */}
-      <Tile flush className="mt-4">
-        <div className="flex items-center justify-between px-6 pt-6">
-          <div>
-            <Label>Recent sales</Label>
-            <p className="mt-2 text-[0.8125rem] text-muted">Latest transactions across all channels</p>
+      {contracts.length === 0 && !loading && !unverified && (
+        <Tile className="flex-row flex-wrap items-center gap-4">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-accent-soft text-accent">
+            <Sparkles className="h-5 w-5" />
           </div>
-          <GhostButton pill className="gap-1" onClick={() => navigate('/sales')}>
-            View all
-            <ArrowUpRight size={15} strokeWidth={2} />
-          </GhostButton>
-        </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[0.9375rem] font-semibold text-ink">See how it works with the R40,000 example</p>
+            <p className="text-[0.8125rem] text-muted">Creates a draft in your account with four stages (R12k · R12k · R12k · R4k). You control when — or if — it is sent.</p>
+          </div>
+          <Button variant="soft" onClick={loadExample} disabled={seeding}>
+            {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Load example
+          </Button>
+        </Tile>
+      )}
 
-        <div className="nodal-scroll mt-5 overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-left">
-            <thead>
-              <tr className="text-faint">
-                {['Invoice', 'Customer', 'Items', 'Amount', 'Status', 'Date'].map((h, i) => (
-                  <th
-                    key={h}
-                    className={cn(
-                      'px-6 py-3 text-[0.6875rem] font-semibold uppercase tracking-[var(--tracking-label)]',
-                      (i === 3) && 'text-right',
-                    )}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {recentSales.map((sale) => (
-                <tr key={sale.id} className="transition-colors hover:bg-surface-2">
-                  <td className="px-6 py-3.5 text-[0.875rem] font-semibold text-ink">{sale.invoiceNumber}</td>
-                  <td className="px-6 py-3.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="grid h-7 w-7 place-items-center rounded-full bg-surface-inset text-[0.75rem] font-semibold text-ink">
-                        {(sale.customerName || 'G').charAt(0)}
-                      </span>
-                      <span className="text-[0.875rem] text-ink">{sale.customerName || 'Walk-in'}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-3.5 text-[0.875rem] text-muted">{sale.items.length} items</td>
-                  <td className="tnum px-6 py-3.5 text-right text-[0.875rem] font-semibold text-ink">{zar(sale.total)}</td>
-                  <td className="px-6 py-3.5">
-                    <span className={cn('inline-flex items-center gap-1.5 text-[0.8125rem] font-medium capitalize', statusStyle(sale.status))}>
-                      <span className={cn('h-1.5 w-1.5 rounded-full', sale.status === 'overdue' ? 'bg-accent' : sale.status === 'pending' ? 'bg-faint' : 'bg-positive')} />
-                      {sale.status}
-                    </span>
-                  </td>
-                  <td className="tnum px-6 py-3.5 text-[0.875rem] text-muted">{format(new Date(sale.createdAt), 'd MMM')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {contracts.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label>Recent agreements</Label>
+            <button onClick={() => navigate('/contracts')} className="text-[0.8125rem] font-medium text-muted hover:text-ink">View all</button>
+          </div>
+          <div className="space-y-2.5">
+            {contracts.slice(0, 5).map((c) => (
+              <ContractRow key={c.id} c={c} onOpen={() => navigate(`/contracts/${c.id}`)} />
+            ))}
+          </div>
         </div>
-        <div className="h-2" />
-      </Tile>
+      )}
     </div>
   );
 };
