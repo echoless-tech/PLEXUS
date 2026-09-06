@@ -5,22 +5,29 @@ rules_version = '2';
 // Firestore Security Rules (Standard edition, default-deny)
 //
 // THREAT MODEL
-//   Two mutually distrustful parties (SME and Buyer) share a contract.
-//   Neither party may: read contracts they are not part of; alter agreed
+//   Two mutually distrustful parties (SME and Buyer) share a contract, and a
+//   third party (Funder) may observe agreements the SME chooses to list.
+//   Nobody may: read contracts they are not entitled to; alter agreed
 //   amounts/terms after acceptance; move a milestone through the payment
-//   workflow out of order or on the other party's behalf; forge audit
-//   events or timestamps; or grant themselves "verified" status.
+//   workflow out of order or on another party's behalf; forge audit events
+//   or timestamps; grant themselves "verified" status; change their account
+//   type after choosing it; or (as a funder) read any settlement details.
 //
 // DATA MODEL
-//   profiles/{uid}                 minimal public profile (any signed-in user reads)
-//   verifications/{uid}            PRIVATE KYC summary (owner only; last-4 digits only)
-//   contracts/{cid}                agreement header (locked once active)
-//   contracts/{cid}/milestones/{m} one doc per stage — role-gated state machine
-//   contracts/{cid}/events/{e}     append-only audit trail, server-timestamped
+//   profiles/{uid}                    public storefront data (any signed-in user reads)
+//   profiles/{uid}/documents/{d}      PRIVATE business documents — Run section (owner only)
+//   verifications/{uid}               PRIVATE KYC summary (owner only; last-4 digits only)
+//   contracts/{cid}                   agreement header (locked once active)
+//   contracts/{cid}/private/payment   PRIVATE settlement details (two parties only)
+//   contracts/{cid}/milestones/{m}    one doc per stage — role-gated state machine
+//   contracts/{cid}/events/{e}        append-only audit trail, server-timestamped
 //
 // INVARIANTS ENFORCED HERE
+//   • accountType ('business' | 'funder') is write-once.
+//   • Only a BUSINESS with submitted verification may author an agreement.
 //   • Only the SME edits terms, and only while status == 'draft'.
-//   • 'proposed' terms are frozen: SME may only withdraw or cancel.
+//   • 'proposed' terms are frozen: SME may only withdraw, cancel, or toggle
+//     the seekingFunding flag.
 //   • Only the invited buyer (matching email) can accept; acceptance sets
 //     buyerUid to the caller, status 'active', and lockedAt = server time.
 //   • After activation, milestone amounts/terms cannot change at all.
@@ -28,8 +35,12 @@ rules_version = '2';
 //     Buyer: evidence_submitted → approved | pending(reject); approved → paid.
 //     Either: evidence_submitted|approved → disputed. Resolve → pending
 //     (either) or → approved (buyer only).
+//   • FUNDER (verification submitted) may READ header/milestones/events of
+//     agreements with seekingFunding == true and status ∉ {draft, cancelled}.
+//     Funders can never write to a contract and never read private/payment.
 //   • Every timestamp that matters equals request.time (no client clocks).
 //   • Audit events: create-only, actor must be caller, never updated/deleted.
+//   • Business documents: create/delete only, never edited; AI fields reserved.
 //   • Clients may never set verificationStatus to 'verified'.
 //   • Every string/list/map has a hard size cap (mirrors src/types LIMITS).
 // =====================================================================
@@ -105,6 +116,18 @@ service cloud.firestore {
       return getAfter(contractPath(cid)).data;
     }
 
+    function milestonePath(cid, mid) {
+      return /databases/$(database)/documents/contracts/$(cid)/milestones/$(mid);
+    }
+
+    function milestoneNow(cid, mid) {
+      return get(milestonePath(cid, mid)).data;
+    }
+
+    function milestoneAfter(cid, mid) {
+      return getAfter(milestonePath(cid, mid)).data;
+    }
+
     function isSmeOf(c) {
       return c.smeUid == uid();
     }
@@ -117,13 +140,32 @@ service cloud.firestore {
       return c.buyerUid == null && c.buyerEmail == callerEmail() && callerEmail() != '';
     }
 
+    function isParticipant(c) {
+      return isSmeOf(c) || isBuyerOf(c);
+    }
+
+    function accountTypeOf(u) {
+      return exists(profilePath(u)) ? get(profilePath(u)).data.accountType : null;
+    }
+
+    // Funders may observe agreements the SME has listed for funding — only once
+    // they are out of draft, and only if the funder has submitted verification.
+    function funderCanObserve(c) {
+      return c.seekingFunding == true &&
+        c.status in ['proposed', 'active', 'completed'] &&
+        accountTypeOf(uid()) == 'funder' &&
+        hasSubmittedVerification(uid());
+    }
+
     // Drafts are private to the SME. Invited buyers see the proposal only.
     function canReadContract(c) {
-      return isSmeOf(c) || isBuyerOf(c) || (isInvitedBuyerOf(c) && c.status == 'proposed');
+      return isParticipant(c) ||
+        (isInvitedBuyerOf(c) && c.status == 'proposed') ||
+        funderCanObserve(c);
     }
 
     function isActorOn(c) {
-      return isSmeOf(c) || isBuyerOf(c) || isInvitedBuyerOf(c);
+      return isParticipant(c) || isInvitedBuyerOf(c);
     }
 
     // ───────────────────────── Shapes ──────────────────────────────
@@ -141,7 +183,7 @@ service cloud.firestore {
 
     function contractKeys() {
       return ['smeUid', 'smeName', 'buyerUid', 'buyerEmail', 'buyerName', 'title', 'scope',
-              'totalValue', 'currency', 'expectedDelivery', 'paymentInstructions', 'disputeRules',
+              'totalValue', 'currency', 'expectedDelivery', 'disputeRules', 'seekingFunding',
               'status', 'milestoneCount', 'smeAcceptedAt', 'buyerAcceptedAt', 'lockedAt',
               'completedAt', 'cancelledBy', 'cancelReason', 'createdAt', 'updatedAt'];
     }
@@ -154,8 +196,8 @@ service cloud.firestore {
         strLen(d.title, 1, 120) && strLen(d.scope, 0, 2000) &&
         d.totalValue is number && d.totalValue > 0 && d.totalValue <= 100000000 &&
         d.currency == 'ZAR' && isIsoDate(d.expectedDelivery) &&
-        validPaymentInstructions(d.paymentInstructions) &&
         strLen(d.disputeRules, 0, 2000) &&
+        d.seekingFunding is bool &&
         d.status in ['draft', 'proposed', 'active', 'completed', 'cancelled'] &&
         d.milestoneCount is int && d.milestoneCount >= 1 && d.milestoneCount <= 12 &&
         optTs(d.smeAcceptedAt) && optTs(d.buyerAcceptedAt) && optTs(d.lockedAt) &&
@@ -206,28 +248,77 @@ service cloud.firestore {
     }
 
     // ───────────────────────── profiles ────────────────────────────
+    // Public storefront-style data only. accountType is write-once.
+
+    function profileKeys() {
+      return ['uid', 'accountType', 'businessName', 'verificationStatus', 'logoDataUrl',
+              'industry', 'description', 'location', 'publicEmail', 'createdAt'];
+    }
+
+    function validProfileShape(d, pid) {
+      return d.keys().hasOnly(profileKeys()) && d.keys().hasAll(profileKeys()) &&
+        d.uid == pid &&
+        (d.accountType == null || d.accountType in ['business', 'funder']) &&
+        strLen(d.businessName, 1, 120) &&
+        d.verificationStatus in ['unverified', 'pending', 'verified'] &&
+        (d.logoDataUrl == null || (d.logoDataUrl is string && d.logoDataUrl.size() <= 200000 &&
+          d.logoDataUrl.matches('^data:image/(png|jpeg|jpg|webp);base64,.*'))) &&
+        (d.industry == null || d.industry in ['manufacturing', 'construction', 'retail', 'food',
+          'services', 'logistics', 'technology', 'agriculture', 'creative', 'other']) &&
+        strLen(d.description, 0, 600) && strLen(d.location, 0, 120) &&
+        (d.publicEmail == '' || isEmail(d.publicEmail)) &&
+        d.createdAt is timestamp;
+    }
 
     match /profiles/{pid} {
       allow read: if isAuthed();
 
       allow create: if isAuthed() && uid() == pid &&
-        request.resource.data.keys().hasOnly(['uid', 'businessName', 'verificationStatus', 'createdAt']) &&
-        request.resource.data.keys().hasAll(['uid', 'businessName', 'verificationStatus', 'createdAt']) &&
-        request.resource.data.uid == pid &&
-        strLen(request.resource.data.businessName, 1, 120) &&
+        validProfileShape(request.resource.data, pid) &&
         request.resource.data.verificationStatus in ['unverified', 'pending'] &&
         request.resource.data.createdAt == request.time;
 
       allow update: if isAuthed() && uid() == pid &&
-        request.resource.data.keys().hasOnly(['uid', 'businessName', 'verificationStatus', 'createdAt']) &&
-        request.resource.data.uid == pid &&
+        validProfileShape(request.resource.data, pid) &&
         request.resource.data.createdAt == resource.data.createdAt &&
-        strLen(request.resource.data.businessName, 1, 120) &&
+        // accountType may be set once (null → value) and never changed after.
+        // (Legacy profiles predate the field; `in` guards the missing-key error.)
+        (!('accountType' in resource.data) || resource.data.accountType == null ||
+         request.resource.data.accountType == resource.data.accountType) &&
         // A client can move to 'pending' but can never grant itself 'verified'.
         (request.resource.data.verificationStatus in ['unverified', 'pending'] ||
          request.resource.data.verificationStatus == resource.data.verificationStatus);
 
       allow delete: if false;
+
+      // ── Run: the business's own documents (invoices, receipts, statements).
+      //    Owner-only. Analysis fields are reserved for the server-side AI.
+      match /documents/{docId} {
+        function docKeys() {
+          return ['kind', 'title', 'documentDate', 'amount', 'counterparty', 'note', 'fileName',
+                  'mimeType', 'dataUrl', 'analysisStatus', 'analysisNote', 'createdAt'];
+        }
+        function validDoc(d) {
+          return d.keys().hasOnly(docKeys()) && d.keys().hasAll(docKeys()) &&
+            d.kind in ['invoice', 'receipt', 'bank_statement', 'other'] &&
+            strLen(d.title, 1, 160) && isIsoDate(d.documentDate) &&
+            (d.amount == null || isMoney(d.amount, 100000000)) &&
+            strLen(d.counterparty, 0, 160) && strLen(d.note, 0, 1000) &&
+            optStr(d.fileName, 160) && optStr(d.mimeType, 64) &&
+            (d.dataUrl == null || (d.dataUrl is string && d.dataUrl.size() <= 700000 &&
+              d.dataUrl.matches('^data:(image/(png|jpeg|jpg|webp)|application/pdf);base64,.*'))) &&
+            d.analysisStatus == 'pending_review' && d.analysisNote == null &&
+            d.createdAt is timestamp;
+        }
+        allow read: if isAuthed() && uid() == pid;
+        allow create: if isAuthed() && uid() == pid &&
+          accountTypeOf(uid()) == 'business' &&
+          validDoc(request.resource.data) &&
+          request.resource.data.createdAt == request.time;
+        // Documents are evidence — they can be removed but never edited.
+        allow update: if false;
+        allow delete: if isAuthed() && uid() == pid;
+      }
     }
 
     // ─────────────────────── verifications ─────────────────────────
@@ -236,7 +327,7 @@ service cloud.firestore {
     function verificationKeys() {
       return ['legalName', 'tradingName', 'registrationNumber', 'taxNumber', 'ownerFullName',
               'ownerIdLast4', 'phone', 'email', 'address', 'bankName', 'accountHolder',
-              'accountNumberLast4', 'status', 'submittedAt', 'updatedAt'];
+              'accountNumberLast4', 'licenceNumber', 'status', 'submittedAt', 'updatedAt'];
     }
 
     function validVerification(d) {
@@ -249,6 +340,7 @@ service cloud.firestore {
         strLen(d.address, 0, 300) && strLen(d.bankName, 0, 64) &&
         strLen(d.accountHolder, 0, 120) &&
         d.accountNumberLast4 is string && d.accountNumberLast4.matches('^[0-9]{4}$') &&
+        strLen(d.licenceNumber, 0, 64) &&
         d.status in ['unverified', 'pending', 'verified'] &&
         optTs(d.submittedAt) && d.updatedAt == request.time;
     }
@@ -277,10 +369,11 @@ service cloud.firestore {
 
       allow read: if isAuthed() && canReadContract(resource.data);
 
-      // Only an SME with submitted verification may author an agreement.
+      // Only a verified-submitted BUSINESS may author an agreement (funders observe only).
       allow create: if isAuthed() &&
         validContractShape(request.resource.data) &&
         request.resource.data.smeUid == uid() &&
+        accountTypeOf(uid()) == 'business' &&
         hasSubmittedVerification(uid()) &&
         request.resource.data.buyerUid == null &&
         request.resource.data.status in ['draft', 'proposed'] &&
@@ -303,11 +396,20 @@ service cloud.firestore {
         request.resource.data.createdAt == resource.data.createdAt &&
         (
           smeEditsDraft() || smeProposes() || smeWithdraws() || smeCancelsBeforeLock() ||
-          buyerAccepts() || buyerDeclines() || participantClosesActive()
+          buyerAccepts() || buyerDeclines() || participantClosesActive() || smeTogglesFunding()
         );
 
       // History is immutable — agreements are cancelled, never deleted.
       allow delete: if false;
+
+      // ── SME may list / unlist the agreement for funders at any live stage.
+      //    The only field that changes is the flag — terms stay locked.
+      function smeTogglesFunding() {
+        return isSmeOf(resource.data) &&
+          resource.data.status in ['draft', 'proposed', 'active'] &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['seekingFunding', 'updatedAt']);
+      }
 
       // ── SME, draft only: free to edit terms. Buyer identity stays null.
       function smeEditsDraft() {
@@ -394,6 +496,24 @@ service cloud.firestore {
              request.resource.data.cancelledBy == uid() &&
              strLen(request.resource.data.cancelReason, 1, 300))
           );
+      }
+
+      // ──────────────── private: settlement details ──────────────
+      // The SME's bank / PayShap details. Only the two parties may read.
+      // Funders observing a listed agreement never reach this document.
+      // Written alongside the draft; frozen once the agreement leaves draft.
+
+      match /private/payment {
+        allow read: if isAuthed() && isParticipant(parentNow(cid));
+
+        allow create, update: if isAuthed() &&
+          parentAfter(cid).smeUid == uid() &&
+          parentAfter(cid).status == 'draft' &&
+          validPaymentInstructions(request.resource.data.details) &&
+          request.resource.data.keys().hasOnly(['details', 'updatedAt']) &&
+          request.resource.data.updatedAt == request.time;
+
+        allow delete: if false;
       }
 
       // ─────────────────────── milestones ────────────────────────
@@ -509,7 +629,65 @@ service cloud.firestore {
       }
 
       // ─────────────────────── audit events ──────────────────────
-      // Append-only. The actor is always the caller; the clock is the server.
+      // Append-only. The actor is always the caller, the claimed role must be
+      // the caller's real role on the agreement, and every event type must
+      // accompany the exact state transition it describes (checked against the
+      // pre- and post-batch state). A participant therefore cannot forge an
+      // audit entry such as "payment recorded" without the payment itself.
+
+      function eventRoleMatches(e, after) {
+        return (e.actorRole == 'sme' && isSmeOf(after)) ||
+               (e.actorRole == 'buyer' && (isBuyerOf(after) || isInvitedBuyerOf(after)));
+      }
+
+      function contractEventValid(e, cid, after) {
+        return e.milestoneId == null && (
+          (e.type == 'contract_created' && e.actorRole == 'sme' &&
+            after.status == 'draft' && after.createdAt == request.time) ||
+          (e.type == 'contract_proposed' && e.actorRole == 'sme' &&
+            parentNow(cid).status == 'draft' && after.status == 'proposed') ||
+          (e.type == 'contract_withdrawn' && e.actorRole == 'sme' &&
+            parentNow(cid).status == 'proposed' && after.status == 'draft') ||
+          (e.type == 'contract_accepted' && e.actorRole == 'buyer' &&
+            parentNow(cid).status == 'proposed' && after.status == 'active') ||
+          (e.type == 'contract_declined' && e.actorRole == 'buyer' &&
+            parentNow(cid).status == 'proposed' && after.status == 'cancelled') ||
+          (e.type == 'contract_cancelled' &&
+            parentNow(cid).status != 'cancelled' && after.status == 'cancelled') ||
+          (e.type == 'contract_completed' &&
+            parentNow(cid).status == 'active' && after.status == 'completed') ||
+          (e.type == 'contract_listed_for_funding' && e.actorRole == 'sme' &&
+            parentNow(cid).seekingFunding == false && after.seekingFunding == true) ||
+          (e.type == 'contract_unlisted_for_funding' && e.actorRole == 'sme' &&
+            parentNow(cid).seekingFunding == true && after.seekingFunding == false)
+        );
+      }
+
+      function milestoneEventValid(e, cid) {
+        return e.milestoneId is string && (
+          (e.type == 'milestone_evidence_submitted' && e.actorRole == 'sme' &&
+            milestoneNow(cid, e.milestoneId).status == 'pending' &&
+            milestoneAfter(cid, e.milestoneId).status == 'evidence_submitted') ||
+          (e.type == 'milestone_evidence_withdrawn' && e.actorRole == 'sme' &&
+            milestoneNow(cid, e.milestoneId).status == 'evidence_submitted' &&
+            milestoneAfter(cid, e.milestoneId).status == 'pending') ||
+          (e.type == 'milestone_rejected' && e.actorRole == 'buyer' &&
+            milestoneNow(cid, e.milestoneId).status == 'evidence_submitted' &&
+            milestoneAfter(cid, e.milestoneId).status == 'pending') ||
+          (e.type == 'milestone_approved' && e.actorRole == 'buyer' &&
+            milestoneNow(cid, e.milestoneId).status == 'evidence_submitted' &&
+            milestoneAfter(cid, e.milestoneId).status == 'approved') ||
+          (e.type == 'milestone_paid' && e.actorRole == 'buyer' &&
+            milestoneNow(cid, e.milestoneId).status == 'approved' &&
+            milestoneAfter(cid, e.milestoneId).status == 'paid') ||
+          (e.type == 'milestone_disputed' &&
+            milestoneNow(cid, e.milestoneId).status in ['evidence_submitted', 'approved'] &&
+            milestoneAfter(cid, e.milestoneId).status == 'disputed') ||
+          (e.type == 'milestone_dispute_resolved' &&
+            milestoneNow(cid, e.milestoneId).status == 'disputed' &&
+            milestoneAfter(cid, e.milestoneId).status in ['pending', 'approved'])
+        );
+      }
 
       match /events/{eid} {
         allow read: if isAuthed() && canReadContract(parentNow(cid));
@@ -518,17 +696,14 @@ service cloud.firestore {
           isActorOn(parentAfter(cid)) &&
           request.resource.data.keys().hasOnly(['type', 'actorUid', 'actorRole', 'milestoneId', 'summary', 'at']) &&
           request.resource.data.keys().hasAll(['type', 'actorUid', 'actorRole', 'milestoneId', 'summary', 'at']) &&
-          request.resource.data.type in [
-            'contract_created', 'contract_proposed', 'contract_withdrawn', 'contract_accepted',
-            'contract_declined', 'contract_cancelled', 'contract_completed',
-            'milestone_evidence_submitted', 'milestone_evidence_withdrawn', 'milestone_rejected',
-            'milestone_approved', 'milestone_paid', 'milestone_disputed', 'milestone_dispute_resolved'
-          ] &&
           request.resource.data.actorUid == uid() &&
           request.resource.data.actorRole in ['sme', 'buyer'] &&
+          eventRoleMatches(request.resource.data, parentAfter(cid)) &&
           optStr(request.resource.data.milestoneId, 64) &&
           strLen(request.resource.data.summary, 1, 500) &&
-          request.resource.data.at == request.time;
+          request.resource.data.at == request.time &&
+          (contractEventValid(request.resource.data, cid, parentAfter(cid)) ||
+           milestoneEventValid(request.resource.data, cid));
 
         allow update, delete: if false;
       }

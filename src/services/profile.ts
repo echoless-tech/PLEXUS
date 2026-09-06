@@ -1,7 +1,28 @@
-import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  where,
+} from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { takePendingBusinessName } from './auth';
-import type { PublicProfile, Verification, VerificationStatus } from '../types';
+import type {
+  AccountType,
+  BusinessDocument,
+  DocumentKind,
+  Industry,
+  PublicProfile,
+  Verification,
+  VerificationStatus,
+} from '../types';
+import { LIMITS } from '../types';
 
 function requireUid(): string {
   const uid = auth.currentUser?.uid;
@@ -12,56 +33,126 @@ function requireUid(): string {
 const toDate = (v: unknown): Date =>
   v instanceof Timestamp ? v.toDate() : v instanceof Date ? v : new Date();
 
-// ─── Public profile ──────────────────────────────────────────────────
-
-export async function ensureProfile(): Promise<PublicProfile> {
-  const uid = requireUid();
-  const ref = doc(db, 'profiles', uid);
-  const snap = await getDoc(ref);
-  if (snap.exists()) {
-    const d = snap.data();
-    return {
-      uid,
-      businessName: d.businessName,
-      verificationStatus: d.verificationStatus,
-      createdAt: toDate(d.createdAt),
-    };
-  }
-  const businessName =
-    takePendingBusinessName() || auth.currentUser?.displayName || 'My business';
-  await setDoc(ref, {
-    uid,
-    businessName,
-    verificationStatus: 'unverified' satisfies VerificationStatus,
-    createdAt: serverTimestamp(),
-  });
-  return { uid, businessName, verificationStatus: 'unverified', createdAt: new Date() };
-}
-
-export async function fetchProfile(uid: string): Promise<PublicProfile | null> {
-  const snap = await getDoc(doc(db, 'profiles', uid));
-  if (!snap.exists()) return null;
-  const d = snap.data();
+function mapProfile(uid: string, d: Record<string, any>): PublicProfile {
   return {
     uid,
+    accountType: d.accountType ?? null,
     businessName: d.businessName,
     verificationStatus: d.verificationStatus,
+    logoDataUrl: d.logoDataUrl ?? null,
+    industry: d.industry ?? null,
+    description: d.description ?? '',
+    location: d.location ?? '',
+    publicEmail: d.publicEmail ?? '',
     createdAt: toDate(d.createdAt),
   };
 }
 
-export async function updateBusinessName(name: string): Promise<void> {
+/** Full document body — rules use hasAll, so every key is always written. */
+function profileDoc(p: PublicProfile, createdAt: unknown) {
+  return {
+    uid: p.uid,
+    accountType: p.accountType,
+    businessName: p.businessName.trim().slice(0, LIMITS.name),
+    verificationStatus: p.verificationStatus,
+    logoDataUrl: p.logoDataUrl,
+    industry: p.industry,
+    description: p.description.trim().slice(0, 600),
+    location: p.location.trim().slice(0, 120),
+    publicEmail: p.publicEmail.trim().toLowerCase().slice(0, LIMITS.email),
+    createdAt,
+  };
+}
+
+// ─── Public profile ──────────────────────────────────────────────────
+
+/**
+ * Loads the caller's profile, creating a blank one on first sign-in.
+ * accountType starts null; the app forces a choice before anything else.
+ * Older profiles (pre-restructure) are upgraded in place with the new fields.
+ */
+export async function ensureProfile(pendingType: AccountType | null = null): Promise<PublicProfile> {
+  const uid = requireUid();
+  const ref = doc(db, 'profiles', uid);
+  const snap = await getDoc(ref);
+
+  if (snap.exists()) {
+    const d = snap.data();
+    const needsUpgrade = !('accountType' in d) || !('logoDataUrl' in d) || !('publicEmail' in d);
+    const profile = mapProfile(uid, d);
+    if (needsUpgrade) {
+      await setDoc(ref, profileDoc(profile, d.createdAt));
+    }
+    return profile;
+  }
+
+  const businessName =
+    takePendingBusinessName() || auth.currentUser?.displayName || 'My business';
+  const fresh: PublicProfile = {
+    uid,
+    accountType: pendingType,
+    businessName,
+    verificationStatus: 'unverified',
+    logoDataUrl: null,
+    industry: null,
+    description: '',
+    location: '',
+    publicEmail: auth.currentUser?.email?.toLowerCase() || '',
+    createdAt: new Date(),
+  };
+  await setDoc(ref, profileDoc(fresh, serverTimestamp()));
+  return fresh;
+}
+
+export async function fetchProfile(uid: string): Promise<PublicProfile | null> {
+  const snap = await getDoc(doc(db, 'profiles', uid));
+  return snap.exists() ? mapProfile(uid, snap.data()) : null;
+}
+
+async function rewriteOwnProfile(patch: Partial<PublicProfile>): Promise<PublicProfile> {
   const uid = requireUid();
   const ref = doc(db, 'profiles', uid);
   const snap = await getDoc(ref);
   if (!snap.exists()) throw new Error('Profile missing');
-  const d = snap.data();
-  await setDoc(ref, {
-    uid,
-    businessName: name.trim().slice(0, 120),
-    verificationStatus: d.verificationStatus,
-    createdAt: d.createdAt,
+  const current = mapProfile(uid, snap.data());
+  const next: PublicProfile = { ...current, ...patch, uid };
+  await setDoc(ref, profileDoc(next, snap.data().createdAt));
+  return next;
+}
+
+/** Write-once: the rules reject any later change. */
+export async function setAccountType(type: AccountType): Promise<PublicProfile> {
+  return rewriteOwnProfile({ accountType: type });
+}
+
+export interface ProfileDetailsInput {
+  businessName: string;
+  industry: Industry | null;
+  description: string;
+  location: string;
+  publicEmail: string;
+  logoDataUrl: string | null;
+}
+
+export async function updateProfileDetails(input: ProfileDetailsInput): Promise<PublicProfile> {
+  if (input.logoDataUrl && input.logoDataUrl.length > LIMITS.logoDataUrl)
+    throw new Error('Logo is too large — use an image under ~150 KB.');
+  return rewriteOwnProfile({
+    businessName: input.businessName,
+    industry: input.industry,
+    description: input.description,
+    location: input.location,
+    publicEmail: input.publicEmail,
+    logoDataUrl: input.logoDataUrl,
   });
+}
+
+/** Every business profile on the platform (Connect + Funder directory). */
+export async function fetchBusinessProfiles(): Promise<PublicProfile[]> {
+  const snap = await getDocs(query(collection(db, 'profiles'), where('accountType', '==', 'business')));
+  return snap.docs
+    .map((d) => mapProfile(d.id, d.data()))
+    .sort((a, b) => a.businessName.localeCompare(b.businessName));
 }
 
 // ─── Private verification (KYC summary) ──────────────────────────────
@@ -74,7 +165,8 @@ export async function fetchVerification(): Promise<Verification | null> {
   if (!snap.exists()) return null;
   const d = snap.data();
   return {
-    ...(d as Omit<Verification, 'submittedAt' | 'updatedAt'>),
+    ...(d as Omit<Verification, 'submittedAt' | 'updatedAt' | 'licenceNumber'>),
+    licenceNumber: d.licenceNumber ?? '',
     submittedAt: d.submittedAt ? toDate(d.submittedAt) : null,
     updatedAt: toDate(d.updatedAt),
   };
@@ -104,21 +196,81 @@ export async function submitVerification(input: VerificationInput): Promise<void
     bankName: input.bankName.trim().slice(0, 64),
     accountHolder: input.accountHolder.trim().slice(0, 120),
     accountNumberLast4: input.accountNumberLast4.replace(/\D/g, '').slice(-4),
+    licenceNumber: input.licenceNumber.trim().slice(0, 64),
     status,
     submittedAt: keepVerified && existing.data().submittedAt ? existing.data().submittedAt : serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
-  // Mirror the (non-sensitive) status onto the public profile.
-  const profRef = doc(db, 'profiles', uid);
-  const prof = await getDoc(profRef);
-  if (prof.exists()) {
-    const p = prof.data();
-    await setDoc(profRef, {
-      uid,
-      businessName: input.tradingName.trim() || input.legalName.trim() || p.businessName,
-      verificationStatus: status,
-      createdAt: p.createdAt,
-    });
-  }
+  // Mirror the (non-sensitive) status + display name onto the public profile.
+  await rewriteOwnProfile({
+    verificationStatus: status,
+    businessName: input.tradingName.trim() || input.legalName.trim() || undefined,
+  } as Partial<PublicProfile>);
+}
+
+// ─── Business documents (Run) ────────────────────────────────────────
+
+export interface DocumentInput {
+  kind: DocumentKind;
+  title: string;
+  documentDate: string;
+  amount: number | null;
+  counterparty: string;
+  note: string;
+  fileName: string | null;
+  mimeType: string | null;
+  dataUrl: string | null;
+}
+
+const docsCol = () => collection(db, 'profiles', requireUid(), 'documents');
+
+export async function fetchDocuments(): Promise<BusinessDocument[]> {
+  const snap = await getDocs(query(docsCol(), orderBy('createdAt', 'desc')));
+  return snap.docs.map((d) => {
+    const x = d.data();
+    return {
+      id: d.id,
+      kind: x.kind,
+      title: x.title,
+      documentDate: x.documentDate,
+      amount: x.amount ?? null,
+      counterparty: x.counterparty ?? '',
+      note: x.note ?? '',
+      fileName: x.fileName ?? null,
+      mimeType: x.mimeType ?? null,
+      dataUrl: x.dataUrl ?? null,
+      analysisStatus: x.analysisStatus,
+      analysisNote: x.analysisNote ?? null,
+      createdAt: toDate(x.createdAt),
+    };
+  });
+}
+
+export async function addDocument(input: DocumentInput): Promise<string> {
+  if (!input.title.trim()) throw new Error('Give the document a title.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.documentDate)) throw new Error('Choose the document date.');
+  if (input.dataUrl && input.dataUrl.length > LIMITS.documentDataUrl)
+    throw new Error('File is too large — keep documents under ~500 KB.');
+  const ref = doc(docsCol());
+  await setDoc(ref, {
+    kind: input.kind,
+    title: input.title.trim().slice(0, 160),
+    documentDate: input.documentDate,
+    amount: input.amount === null || Number.isNaN(input.amount) ? null : Math.round(input.amount * 100) / 100,
+    counterparty: input.counterparty.trim().slice(0, 160),
+    note: input.note.trim().slice(0, 1000),
+    fileName: input.fileName ? input.fileName.slice(0, LIMITS.fileName) : null,
+    mimeType: input.mimeType ? input.mimeType.slice(0, 64) : null,
+    dataUrl: input.dataUrl,
+    // Reserved for the server-side AI analysis (implemented later).
+    analysisStatus: 'pending_review',
+    analysisNote: null,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function removeDocument(id: string): Promise<void> {
+  await deleteDoc(doc(docsCol(), id));
 }

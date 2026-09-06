@@ -26,6 +26,7 @@ import type {
   Contract,
   ContractEvent,
   ContractEventType,
+  ContractPaymentDetails,
   ContractView,
   EvidenceType,
   Milestone,
@@ -84,8 +85,8 @@ function mapContract(id: string, d: Record<string, any>): Contract {
     totalValue: d.totalValue,
     currency: 'ZAR',
     expectedDelivery: d.expectedDelivery,
-    paymentInstructions: d.paymentInstructions,
     disputeRules: d.disputeRules ?? '',
+    seekingFunding: d.seekingFunding === true,
     status: d.status,
     milestoneCount: d.milestoneCount,
     smeAcceptedAt: toDate(d.smeAcceptedAt),
@@ -129,7 +130,8 @@ function mapMilestone(id: string, d: Record<string, any>): Milestone {
 
 export function toView(c: Contract): ContractView {
   const { uid, email } = requireUser();
-  const myRole: Role = c.smeUid === uid ? 'sme' : 'buyer';
+  const myRole: Role =
+    c.smeUid === uid ? 'sme' : c.buyerUid === uid || (c.buyerUid === null && c.buyerEmail === email) ? 'buyer' : 'funder';
   return {
     ...c,
     myRole,
@@ -139,7 +141,8 @@ export function toView(c: Contract): ContractView {
 }
 
 function roleOn(c: Contract): Role {
-  return c.smeUid === requireUser().uid ? 'sme' : 'buyer';
+  const { uid } = requireUser();
+  return c.smeUid === uid ? 'sme' : 'buyer';
 }
 
 // ─── Authoring input ─────────────────────────────────────────────────
@@ -160,6 +163,8 @@ export interface ContractInput {
   expectedDelivery: string;
   paymentInstructions: PaymentInstructions;
   disputeRules: string;
+  /** List this agreement's payment plan for funders. */
+  seekingFunding: boolean;
   milestones: MilestoneInput[];
 }
 
@@ -208,6 +213,8 @@ function paymentInstructionsDoc(p: PaymentInstructions): Record<string, string> 
   return out;
 }
 
+const privatePaymentRef = (cid: string) => doc(db, 'contracts', cid, 'private', 'payment');
+
 // ─── Create / edit (draft phase) ─────────────────────────────────────
 
 export async function createContract(input: ContractInput, smeName: string): Promise<string> {
@@ -228,8 +235,8 @@ export async function createContract(input: ContractInput, smeName: string): Pro
     totalValue: cents(input.totalValue),
     currency: 'ZAR',
     expectedDelivery: input.expectedDelivery,
-    paymentInstructions: paymentInstructionsDoc(input.paymentInstructions),
     disputeRules: input.disputeRules.trim().slice(0, LIMITS.longText),
+    seekingFunding: input.seekingFunding === true,
     status: 'draft',
     milestoneCount: input.milestones.length,
     smeAcceptedAt: null,
@@ -239,6 +246,12 @@ export async function createContract(input: ContractInput, smeName: string): Pro
     cancelledBy: null,
     cancelReason: null,
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  // Settlement details live in a participant-only sub-document.
+  batch.set(privatePaymentRef(cid), {
+    details: paymentInstructionsDoc(input.paymentInstructions),
     updatedAt: serverTimestamp(),
   });
 
@@ -291,8 +304,8 @@ export async function updateDraft(c: Contract, existing: Milestone[], input: Con
     totalValue: cents(input.totalValue),
     currency: 'ZAR',
     expectedDelivery: input.expectedDelivery,
-    paymentInstructions: paymentInstructionsDoc(input.paymentInstructions),
     disputeRules: input.disputeRules.trim().slice(0, LIMITS.longText),
+    seekingFunding: input.seekingFunding === true,
     status: 'draft',
     milestoneCount: input.milestones.length,
     smeAcceptedAt: null,
@@ -302,6 +315,11 @@ export async function updateDraft(c: Contract, existing: Milestone[], input: Con
     cancelledBy: null,
     cancelReason: null,
     createdAt: Timestamp.fromDate(c.createdAt),
+    updatedAt: serverTimestamp(),
+  });
+
+  batch.set(privatePaymentRef(c.id), {
+    details: paymentInstructionsDoc(input.paymentInstructions),
     updatedAt: serverTimestamp(),
   });
 
@@ -349,8 +367,8 @@ function headerWrite(c: Contract, patch: Record<string, unknown>) {
     totalValue: c.totalValue,
     currency: 'ZAR',
     expectedDelivery: c.expectedDelivery,
-    paymentInstructions: c.paymentInstructions,
     disputeRules: c.disputeRules,
+    seekingFunding: c.seekingFunding,
     status: c.status,
     milestoneCount: c.milestoneCount,
     smeAcceptedAt: c.smeAcceptedAt ? Timestamp.fromDate(c.smeAcceptedAt) : null,
@@ -426,6 +444,35 @@ export async function completeContract(c: Contract): Promise<void> {
   batch.set(contractRef(c.id), headerWrite(c, { status: 'completed', completedAt: serverTimestamp() }));
   eventDoc(batch, c.id, 'contract_completed', roleOn(c), 'All stages paid. Agreement closed out.');
   await batch.commit();
+}
+
+/** SME lists / unlists the agreement's payment plan for funders. */
+export async function setSeekingFunding(c: Contract, seeking: boolean): Promise<void> {
+  if (c.seekingFunding === seeking) return;
+  const batch = writeBatch(db);
+  batch.set(contractRef(c.id), headerWrite(c, { seekingFunding: seeking }));
+  eventDoc(
+    batch,
+    c.id,
+    seeking ? 'contract_listed_for_funding' : 'contract_unlisted_for_funding',
+    'sme',
+    seeking
+      ? 'Supplier listed this payment plan for funders to view.'
+      : 'Supplier removed this payment plan from the funding list.',
+  );
+  await batch.commit();
+}
+
+/** Participant-only settlement details. Returns null when not permitted (funders). */
+export async function fetchPaymentDetails(cid: string): Promise<ContractPaymentDetails | null> {
+  try {
+    const snap = await getDoc(privatePaymentRef(cid));
+    if (!snap.exists()) return null;
+    const d = snap.data();
+    return { ...(d.details as PaymentInstructions), updatedAt: toDate(d.updatedAt) ?? new Date() };
+  } catch {
+    return null;
+  }
 }
 
 // ─── Milestone workflow (active phase) ───────────────────────────────
@@ -605,6 +652,37 @@ export async function fetchMyContracts(): Promise<ContractView[]> {
 export async function fetchContract(cid: string): Promise<ContractView | null> {
   const snap = await getDoc(contractRef(cid));
   return snap.exists() ? toView(mapContract(snap.id, snap.data())) : null;
+}
+
+/**
+ * Funder view: every agreement listed for funding that is live. The rules
+ * only permit this query for funder accounts with submitted verification,
+ * and only return rows with seekingFunding == true and a non-draft status.
+ */
+export async function fetchFundingOpportunities(): Promise<ContractView[]> {
+  const col = collection(db, 'contracts');
+  const snap = await getDocs(
+    query(col, where('seekingFunding', '==', true), where('status', 'in', ['proposed', 'active', 'completed'])),
+  );
+  return snap.docs
+    .map((d) => toView(mapContract(d.id, d.data())))
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+}
+
+/** Funder view of one SME: its listed agreements only. */
+export async function fetchSmeFundingContracts(smeUid: string): Promise<ContractView[]> {
+  const col = collection(db, 'contracts');
+  const snap = await getDocs(
+    query(
+      col,
+      where('smeUid', '==', smeUid),
+      where('seekingFunding', '==', true),
+      where('status', 'in', ['proposed', 'active', 'completed']),
+    ),
+  );
+  return snap.docs
+    .map((d) => toView(mapContract(d.id, d.data())))
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 }
 
 export function subscribeContract(

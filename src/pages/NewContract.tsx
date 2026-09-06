@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Plus, Trash2, Loader2, Send, Save, Lock, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Plus, Trash2, Loader2, Send, Save, Lock, ShieldAlert, Landmark } from 'lucide-react';
 import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
 import { PayShapLogo } from '../components/common';
 import { useAppStore } from '../stores/appStore';
@@ -10,6 +10,7 @@ import {
   proposeContract,
   fetchContract,
   fetchMilestones,
+  fetchPaymentDetails,
   validateContractInput,
   allocateAmounts,
   type ContractInput,
@@ -59,6 +60,7 @@ const emptyInput = (): ContractInput => ({
   totalValue: 0,
   expectedDelivery: '',
   paymentInstructions: { method: 'eft', accountHolder: '', bankName: '', accountNumber: '', branchCode: '', payshapId: '' },
+  seekingFunding: false,
   disputeRules: DEFAULT_DISPUTE_RULES,
   milestones: TEMPLATES[0].stages.map((s) => ({ ...s })),
 });
@@ -85,7 +87,7 @@ const NewContract: React.FC = () => {
     if (!id) return;
     (async () => {
       try {
-        const [c, ms] = await Promise.all([fetchContract(id), fetchMilestones(id)]);
+        const [c, ms, pay] = await Promise.all([fetchContract(id), fetchMilestones(id), fetchPaymentDetails(id)]);
         if (!c || c.myRole !== 'sme' || c.status !== 'draft') {
           showToast('Only your own drafts can be edited.', 'warning');
           navigate(`/contracts/${id}`);
@@ -99,7 +101,16 @@ const NewContract: React.FC = () => {
           buyerName: c.buyerName,
           totalValue: c.totalValue,
           expectedDelivery: c.expectedDelivery,
-          paymentInstructions: { bankName: '', accountNumber: '', branchCode: '', payshapId: '', ...c.paymentInstructions },
+          paymentInstructions: {
+            method: 'eft',
+            accountHolder: '',
+            bankName: '',
+            accountNumber: '',
+            branchCode: '',
+            payshapId: '',
+            ...(pay || {}),
+          },
+          seekingFunding: c.seekingFunding,
           disputeRules: c.disputeRules,
           milestones: ms.map((m) => ({ title: m.title, percent: m.percent, dueCondition: m.dueCondition, acceptanceRule: m.acceptanceRule })),
         });
@@ -268,7 +279,30 @@ const NewContract: React.FC = () => {
             </div>
             <p className="text-[0.75rem] text-faint">
               PLEXUS never holds funds. The buyer pays you directly using these details and the stage reference we generate.
+              Settlement details are private to you and the buyer — funders never see them.
             </p>
+          </Tile>
+
+          <Tile className="gap-3">
+            <Label>Funding</Label>
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={input.seekingFunding}
+                onChange={(e) => setField('seekingFunding', e.target.checked)}
+                className="mt-1 h-4 w-4 accent-[var(--accent)]"
+              />
+              <span className="text-[0.875rem] leading-relaxed text-ink">
+                <span className="flex items-center gap-1.5 font-semibold">
+                  <Landmark className="h-4 w-4" /> We are looking for funds against this payment plan
+                </span>
+                <span className="mt-1 block text-[0.8125rem] text-muted">
+                  Verified funders will see this agreement's title, value, stage schedule and live progress, plus your
+                  business profile and rating. They cannot see your bank details or act on the agreement. You can remove
+                  the listing at any time.
+                </span>
+              </span>
+            </label>
           </Tile>
         </div>
       )}
@@ -402,6 +436,11 @@ const NewContract: React.FC = () => {
             <p className="text-[0.75rem] text-faint">
               Paid via {input.paymentInstructions.method === 'payshap' ? `PayShap · ${input.paymentInstructions.payshapId}` : `EFT · ${input.paymentInstructions.bankName || 'bank'} ${input.paymentInstructions.accountNumber}`} · {input.paymentInstructions.accountHolder}
             </p>
+            {input.seekingFunding && (
+              <p className="flex items-center gap-1.5 text-[0.75rem] font-semibold text-accent">
+                <Landmark className="h-3.5 w-3.5" /> Listed for funders once sent to the buyer
+              </p>
+            )}
           </Tile>
 
           <Tile className="gap-3">

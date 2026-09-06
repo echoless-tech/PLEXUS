@@ -1,11 +1,17 @@
 import { create } from 'zustand';
-import type { ContractView, PublicProfile, Verification } from '../types';
+import type { AccountType, BusinessDocument, ContractView, PublicProfile, Verification } from '../types';
 import type { AuthUser } from '../services/auth';
 import * as profileSvc from '../services/profile';
 import * as contractSvc from '../services/contracts';
 import { AccentThemeKey, getStoredAccentTheme, storeAccentTheme } from '../theme/accents';
 
 type ToastType = 'success' | 'warning' | 'error' | 'info';
+
+/** Account type chosen on the sign-up form, applied when the profile is first created. */
+let pendingAccountType: AccountType | null = null;
+export const setPendingAccountType = (t: AccountType | null) => {
+  pendingAccountType = t;
+};
 
 interface AppState {
   // Auth
@@ -16,13 +22,29 @@ interface AppState {
   // Identity
   profile: PublicProfile | null;
   verification: Verification | null;
+  identityReady: boolean;
   loadIdentity: () => Promise<void>;
+  chooseAccountType: (t: AccountType) => Promise<void>;
+  /** Reload everything the current account type works with. */
+  refreshWorkspace: () => Promise<void>;
 
-  // Contracts
+  // Contracts (participant view)
   contracts: ContractView[];
   contractsLoading: boolean;
   contractsError: string | null;
   loadContracts: () => Promise<void>;
+
+  // Business documents (Run)
+  documents: BusinessDocument[];
+  loadDocuments: () => Promise<void>;
+
+  // Directory (Connect + funder SME list)
+  businesses: PublicProfile[];
+  loadBusinesses: () => Promise<void>;
+
+  // Funder: listed payment plans
+  opportunities: ContractView[];
+  loadOpportunities: () => Promise<void>;
 
   // Navigation
   sidebarOpen: boolean;
@@ -59,24 +81,51 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAuthUser: (user) => {
     set({ user, authReady: true });
     if (user) {
-      get().loadIdentity().then(() => get().loadContracts());
+      get()
+        .loadIdentity()
+        .then(() => get().refreshWorkspace());
     } else {
-      set({ profile: null, verification: null, contracts: [], contractsError: null });
+      set({
+        profile: null,
+        verification: null,
+        identityReady: false,
+        contracts: [],
+        contractsError: null,
+        documents: [],
+        businesses: [],
+        opportunities: [],
+      });
     }
   },
 
   // Identity
   profile: null,
   verification: null,
+  identityReady: false,
   loadIdentity: async () => {
     try {
       const [profile, verification] = await Promise.all([
-        profileSvc.ensureProfile(),
+        profileSvc.ensureProfile(pendingAccountType),
         profileSvc.fetchVerification(),
       ]);
-      set({ profile, verification });
+      pendingAccountType = null;
+      set({ profile, verification, identityReady: true });
     } catch (err: any) {
       console.warn('Identity load failed:', err?.message);
+      set({ identityReady: true });
+    }
+  },
+  chooseAccountType: async (t) => {
+    const profile = await profileSvc.setAccountType(t);
+    set({ profile });
+    await get().refreshWorkspace();
+  },
+  refreshWorkspace: async () => {
+    const type = get().profile?.accountType;
+    if (type === 'business') {
+      await Promise.all([get().loadContracts(), get().loadDocuments()]);
+    } else if (type === 'funder') {
+      await Promise.all([get().loadBusinesses(), get().loadOpportunities()]);
     }
   },
 
@@ -91,6 +140,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ contracts, contractsLoading: false, contractsError: null });
     } catch (err: any) {
       set({ contractsLoading: false, contractsError: err?.message || 'Could not load agreements' });
+    }
+  },
+
+  // Documents
+  documents: [],
+  loadDocuments: async () => {
+    try {
+      set({ documents: await profileSvc.fetchDocuments() });
+    } catch (err: any) {
+      console.warn('Documents load failed:', err?.message);
+    }
+  },
+
+  // Directory
+  businesses: [],
+  loadBusinesses: async () => {
+    try {
+      set({ businesses: await profileSvc.fetchBusinessProfiles() });
+    } catch (err: any) {
+      console.warn('Directory load failed:', err?.message);
+    }
+  },
+
+  // Funder opportunities
+  opportunities: [],
+  loadOpportunities: async () => {
+    try {
+      set({ opportunities: await contractSvc.fetchFundingOpportunities() });
+    } catch (err: any) {
+      // Expected until the funder has submitted verification (rules deny the query).
+      set({ opportunities: [] });
     }
   },
 

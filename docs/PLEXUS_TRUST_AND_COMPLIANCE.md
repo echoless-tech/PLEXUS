@@ -100,11 +100,18 @@ These are the repeatable operating procedures that make the documents above real
 
 ### 2.1 Participant onboarding & verification (KYB)
 
-1. Account created with email + password (≥ 8 chars). Verification email sent.
-2. Participant submits the **verification summary** in-app (legal name, CIPC no., tax no., director name, last-4 ID, last-4 account). Status → `pending`. From this point they may author or accept agreements, and every counterparty **sees their status**.
-3. KYC partner performs document verification (CIPC lookup, director ID check against DHA, bank-account verification, sanctions/PEP screen).
+1. Account created with email + password (≥ 8 chars) and an **account type** — *business* or *funder* — that is write-once on the server. Verification email sent.
+2. Participant submits the **verification summary** in-app (legal name, CIPC no., tax no., director / authorised representative name, last-4 ID, last-4 account; funders add their FSP/NCR licence number). Status → `pending`. From this point a business may author or accept agreements and a funder may view listed plans, and every counterparty **sees their status**.
+3. KYC partner performs document verification (CIPC lookup, director ID check against DHA, bank-account verification, sanctions/PEP screen; for funders, FSCA/NCR register check).
 4. Ops sets status → `verified` **server-side only** (Admin SDK / Cloud Function). No client can ever write `verified` — the Firestore rules refuse it.
 5. Re-verification: annually, on change of directors/bank account, or on risk trigger.
+
+### 2.1a Funder access to SME data (data minimisation)
+
+- An SME opts in per agreement ("we are looking for funds"). Nothing is exposed to funders without that flag, and the SME can withdraw it at any time; both actions are audit events.
+- A verified funder sees: the SME's public profile, the agreement header (title, value, schedule, status), milestone states and evidence, and the audit trail. A funder **never** sees settlement/bank details (`contracts/{id}/private/payment`), the SME's verification summary, or the SME's Run documents — the rules deny these reads outright.
+- Ratings shown to funders are computed client-side from rule-enforced, buyer-confirmed states only (no self-reported inputs), so they are exactly as trustworthy as the underlying agreement data.
+- Any credit a funder extends on the strength of this information is a matter between the funder and the SME; PLEXUS does not price, intermediate or hold funds (see §1.5).
 
 ### 2.2 Agreement formation ("agreement before work starts")
 
@@ -166,10 +173,15 @@ The client is untrusted. Every invariant below is enforced by Firestore Security
 | Milestone workflow is role-gated and ordered (pending → evidence → approved → paid; disputes from evidence/approved only) | one rule function per transition |
 | Approving a disputed stage for payment is buyer-only | `participantResolvesDispute()` |
 | Every meaningful timestamp equals `request.time` | rules compare to `request.time`; client sends `serverTimestamp()` |
-| Audit events: create-only, actor = caller, never updated/deleted | `events` match block |
+| Audit events: create-only, actor = caller, claimed role = caller's real role, and each event type is accepted **only alongside the exact state transition it describes** (pre/post-batch check) | `eventRoleMatches()`, `contractEventValid()`, `milestoneEventValid()` |
 | Clients can never set `verificationStatus = 'verified'` | profile & verification update rules |
+| Account type is write-once; only businesses create agreements or Run documents | profile update rule; `accountTypeOf(uid()) == 'business'` |
+| Funders read only agreements that are listed (`seekingFunding`), not draft/cancelled, and only once their own verification is submitted | `funderCanObserve()` in `canReadContract()` |
+| Settlement details live in a private sub-document readable only by the two parties; writable by the SME only while `draft` | `match /private/payment` |
+| The funding listing flag is the only header field an SME may change after proposal, and only while draft/proposed/active | `smeTogglesFunding()` with `affectedKeys().hasOnly(['seekingFunding','updatedAt'])` |
+| Run documents are owner-only, create/delete but never update, always enter `pending_review` with no analysis note (AI fields reserved for the server) | `profiles/{uid}/documents` rules |
 | Only last-4 digits of ID/account can be stored | regex `^[0-9]{4}$` |
-| Every string, list and map has a hard size cap | `strLen()`, `optStr()`, `dataUrl.size() <= 700000` |
+| Every string, list and map has a hard size cap | `strLen()`, `optStr()`, `dataUrl.size() <= 700000`, logo `<= 200000` |
 | Agreements are never deleted — only cancelled | `allow delete: if false` |
 | Legacy collections unreachable; default deny | catch-all `match /{document=**}` |
 
@@ -204,6 +216,18 @@ Run from a signed-in **buyer** session against the live rules, bypassing the UI 
 11. Read the counterparty's private KYC document
 12. Harvest all agreements with an unfiltered query
 13. Read the legacy `users` collection
+
+Run from a signed-in **verified funder** session (24 checks, all as expected):
+
+- Allowed: read a listed agreement, its milestones and events; the listing query; SME public profiles.
+- Denied: read `private/payment` (bank details); read an unlisted agreement; unfiltered or `smeUid`-filtered contract queries; the SME's verification document; the SME's Run documents; approve or pay a milestone; flip or cancel a listing; append an audit event; create a contract; change own account type; self-grant `verified` on profile or verification; edit the SME's profile; add Run documents to any profile; delete an agreement.
+
+Run from the **SME** session and from a brand-new **unverified funder** (18 checks, all as expected):
+
+- SME denied: approve/pay own milestone; edit a paid amount or the locked total; change account type; self-verify; write a Run document with `analysisStatus = analysed`; edit an existing document; change payment details after lock; forge an audit event with another role or without the matching transition; run the funder listing query.
+- Unverified funder denied: read a listed agreement, run the listing query, list milestones (public profiles remain readable so the directory works).
+
+Every legitimate transition was then re-exercised through the UI under the tightened rules — create, edit draft, propose, withdraw, list/unlist, accept, decline, evidence, withdraw evidence, return, approve, dispute, resolve, pay, auto-complete, cancel — and each produced exactly one audit event.
 
 ### 3.5 Recommended next controls (not yet implemented)
 

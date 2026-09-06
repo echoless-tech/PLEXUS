@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Loader2, Lock, Mail, Store, ShieldCheck, FileSignature, Receipt } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, Mail, Store, ShieldCheck, FileSignature, Receipt, Building2, Landmark } from 'lucide-react';
 import { SegmentTabs, Button, Toaster } from '../components/ui';
 import { signIn, signUp, resetPassword, authErrorMessage, MIN_PASSWORD_LENGTH } from '../services/auth';
-import { useAppStore } from '../stores/appStore';
+import { useAppStore, setPendingAccountType } from '../stores/appStore';
+import type { AccountType } from '../types';
 
 /**
  * Sign-in / create-account. Email + password only — payment rails are not
@@ -11,6 +12,7 @@ import { useAppStore } from '../stores/appStore';
 const Login: React.FC = () => {
   const showToast = useAppStore((s) => s.showToast);
   const [mode, setMode] = useState(0); // 0 = sign in, 1 = create account
+  const [accountType, setAccountType] = useState<AccountType>('business');
   const [businessName, setBusinessName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,9 +33,12 @@ const Login: React.FC = () => {
 
     setBusy(true);
     try {
-      if (isSignup) await signUp(email, password, businessName);
-      else await signIn(email, password);
+      if (isSignup) {
+        setPendingAccountType(accountType);
+        await signUp(email, password, businessName);
+      } else await signIn(email, password);
     } catch (err) {
+      setPendingAccountType(null);
       setError(authErrorMessage(err));
       setBusy(false);
     }
@@ -72,10 +77,34 @@ const Login: React.FC = () => {
 
           <form onSubmit={submit} className="flex flex-col gap-3.5">
             {isSignup && (
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Account type">
+                {(
+                  [
+                    { t: 'business', label: 'I run a business', Icon: Building2 },
+                    { t: 'funder', label: 'I am a funder', Icon: Landmark },
+                  ] as const
+                ).map(({ t, label, Icon }) => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="radio"
+                    aria-checked={accountType === t}
+                    onClick={() => setAccountType(t)}
+                    className={
+                      'flex items-center justify-center gap-2 rounded-2xl px-3 py-2.5 text-[0.8125rem] font-semibold transition-colors ' +
+                      (accountType === t ? 'bg-ink text-canvas' : 'bg-surface-inset/60 text-muted hover:text-ink')
+                    }
+                  >
+                    <Icon className="h-4 w-4" /> {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {isSignup && (
               <Field
                 icon={<Store className="h-4 w-4 shrink-0 text-faint" />}
                 type="text"
-                placeholder="Business name"
+                placeholder={accountType === 'funder' ? 'Fund / institution name' : 'Business name'}
                 value={businessName}
                 onChange={setBusinessName}
                 autoComplete="organization"

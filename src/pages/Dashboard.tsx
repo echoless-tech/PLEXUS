@@ -1,12 +1,33 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FilePlus2, ShieldAlert, ArrowRight, Sparkles, Loader2 } from 'lucide-react';
+import { FilePlus2, ShieldAlert, ArrowRight, Sparkles, Loader2, ScanLine, Users, BarChart3 } from 'lucide-react';
 import { PageHeader, Tile, Button, Metric, Label } from '../components/ui';
 import { useAppStore } from '../stores/appStore';
 import { fetchMilestones, summarise, createContract } from '../services/contracts';
 import type { ContractView, Milestone } from '../types';
 import { zar } from '../lib/format';
 import { ContractRow } from './Contracts';
+
+const SECTIONS = [
+  {
+    to: '/run',
+    icon: ScanLine,
+    title: 'Run',
+    text: 'Scan or upload invoices, receipts and bank statements to evidence how your business performs.',
+  },
+  {
+    to: '/connect',
+    icon: Users,
+    title: 'Connect',
+    text: 'Find verified businesses on PLEXUS to buy from, supply to or collaborate with.',
+  },
+  {
+    to: '/statistics',
+    icon: BarChart3,
+    title: 'Statistics',
+    text: 'Your rating, on-time delivery and payment performance — what funders and buyers see.',
+  },
+];
 
 /**
  * Dashboard = "what needs my action" + money position. It reads live
@@ -74,6 +95,7 @@ const Dashboard: React.FC = () => {
           totalValue: 40000,
           expectedDelivery: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
           paymentInstructions: { method: 'eft', accountHolder: profile?.businessName || 'Supplier', bankName: 'FNB', accountNumber: '62000000000', branchCode: '250655' },
+          seekingFunding: false,
           disputeRules:
             'If a stage is disputed, both parties will first try to resolve it in writing within 5 business days. Payment for the disputed stage is paused until resolved; stages already paid are not reversed.',
           milestones: [
@@ -96,6 +118,10 @@ const Dashboard: React.FC = () => {
   };
 
   const unverified = !profile || profile.verificationStatus === 'unverified';
+  const listedForFunding = useMemo(
+    () => contracts.filter((c) => c.myRole === 'sme' && c.seekingFunding && c.status !== 'cancelled' && c.status !== 'draft').length,
+    [contracts],
+  );
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -117,17 +143,34 @@ const Dashboard: React.FC = () => {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[0.9375rem] font-semibold text-ink">Verify your business to create or accept agreements</p>
-            <p className="text-[0.8125rem] text-muted">Takes about a minute. Buyers and suppliers see each other's verification status.</p>
+            <p className="text-[0.8125rem] text-muted">Takes about a minute. Buyers, suppliers and funders see each other's verification status.</p>
           </div>
           <ArrowRight className="h-4 w-4 shrink-0 text-faint" />
         </Tile>
       )}
 
+      <div className="grid gap-3 sm:grid-cols-3">
+        {SECTIONS.map(({ to, icon: Icon, title, text }) => (
+          <Tile key={to} interactive as="button" onClick={() => navigate(to)} className="gap-3 text-left">
+            <div className="flex items-center justify-between">
+              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-ink text-canvas">
+                <Icon className="h-5 w-5" />
+              </span>
+              <ArrowRight className="h-4 w-4 text-faint" />
+            </div>
+            <div>
+              <p className="text-[1rem] font-bold text-ink">{title}</p>
+              <p className="mt-0.5 text-[0.8125rem] leading-snug text-muted">{text}</p>
+            </div>
+          </Tile>
+        ))}
+      </div>
+
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Metric label="Received (as supplier)" value={zar(money.asSme.paid, false)} hint="paid to you" />
         <Metric label="Still to receive" value={zar(money.asSme.outstanding, false)} hint={money.asSme.awaitingPayment ? `${zar(money.asSme.awaitingPayment, false)} approved` : undefined} accent={money.asSme.awaitingPayment > 0} />
         <Metric label="Paid out (as buyer)" value={zar(money.asBuyer.paid, false)} hint="on approved stages" />
-        <Metric label="Active agreements" value={String(open.length)} hint={`${contracts.length} total`} />
+        <Metric label="Active agreements" value={String(open.length)} hint={listedForFunding ? `${listedForFunding} listed for funders` : `${contracts.length} total`} />
       </div>
 
       <div className="space-y-3">

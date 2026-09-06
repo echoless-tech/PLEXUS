@@ -20,6 +20,7 @@ const EMPTY: VerificationInput = {
   bankName: '',
   accountHolder: '',
   accountNumberLast4: '',
+  licenceNumber: '',
 };
 
 /**
@@ -34,6 +35,7 @@ const Verification: React.FC = () => {
   const verification = useAppStore((s) => s.verification);
   const user = useAppStore((s) => s.user);
   const loadIdentity = useAppStore((s) => s.loadIdentity);
+  const refreshWorkspace = useAppStore((s) => s.refreshWorkspace);
   const showToast = useAppStore((s) => s.showToast);
 
   const [form, setForm] = useState<VerificationInput>(EMPTY);
@@ -43,7 +45,7 @@ const Verification: React.FC = () => {
   useEffect(() => {
     if (verification) {
       const { status: _s, submittedAt: _a, updatedAt: _u, ...rest } = verification;
-      setForm(rest);
+      setForm({ ...EMPTY, ...rest });
     } else {
       setForm((f) => ({
         ...f,
@@ -69,8 +71,15 @@ const Verification: React.FC = () => {
     try {
       await submitVerification(form);
       await loadIdentity();
-      showToast('Verification submitted. You can now create and accept agreements.', 'success');
-      navigate('/contracts');
+      // Verification unlocks reads the rules previously denied (e.g. funder queries).
+      refreshWorkspace().catch(() => undefined);
+      showToast(
+        isFunder
+          ? 'Verification submitted. You can now view SMEs and listed payment plans.'
+          : 'Verification submitted. You can now create and accept agreements.',
+        'success',
+      );
+      navigate('/');
     } catch (err: any) {
       setError(err?.message || 'Could not submit verification.');
     } finally {
@@ -79,13 +88,18 @@ const Verification: React.FC = () => {
   };
 
   const status = profile?.verificationStatus || 'unverified';
+  const isFunder = profile?.accountType === 'funder';
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         eyebrow="Trust"
-        title="Business verification"
-        subtitle="Both parties to a payment agreement must verify who they are. Buyers see your verification status before they accept."
+        title={isFunder ? 'Funder verification' : 'Business verification'}
+        subtitle={
+          isFunder
+            ? 'Funders must verify before they can view SMEs or listed payment plans. SMEs see your verification status.'
+            : 'Both parties to a payment agreement must verify who they are. Buyers and funders see your verification status.'
+        }
         actions={<VerificationBadge status={status} />}
       />
 
@@ -105,20 +119,29 @@ const Verification: React.FC = () => {
 
       <form onSubmit={submit} className="space-y-5">
         <Tile className="gap-4">
-          <Label>Business</Label>
+          <Label>{isFunder ? 'Institution' : 'Business'}</Label>
           <div className="grid gap-3 sm:grid-cols-2">
             <Input label="Registered / legal name *" value={form.legalName} onChange={set('legalName')} maxLength={160} />
             <Input label="Trading name" value={form.tradingName} onChange={set('tradingName')} maxLength={160} />
             <Input label="CIPC registration no." value={form.registrationNumber} onChange={set('registrationNumber')} maxLength={40} placeholder="2019/123456/07" />
             <Input label="SARS tax reference" value={form.taxNumber} onChange={set('taxNumber')} maxLength={40} />
+            {isFunder && (
+              <Input
+                label="FSP / NCR licence no. (if applicable)"
+                value={form.licenceNumber}
+                onChange={set('licenceNumber')}
+                maxLength={64}
+                placeholder="e.g. FSP 12345 or NCRCP1234"
+              />
+            )}
             <Input label="Contact phone" value={form.phone} onChange={set('phone')} maxLength={32} type="tel" />
             <Input label="Contact email" value={form.email} onChange={set('email')} maxLength={254} type="email" />
           </div>
-          <Input label="Business address" value={form.address} onChange={set('address')} maxLength={300} />
+          <Input label={isFunder ? 'Registered address' : 'Business address'} value={form.address} onChange={set('address')} maxLength={300} />
         </Tile>
 
         <Tile className="gap-4">
-          <Label>Owner / director</Label>
+          <Label>{isFunder ? 'Authorised representative' : 'Owner / director'}</Label>
           <div className="grid gap-3 sm:grid-cols-2">
             <Input label="Full name *" value={form.ownerFullName} onChange={set('ownerFullName')} maxLength={160} />
             <Input
@@ -133,9 +156,11 @@ const Verification: React.FC = () => {
         </Tile>
 
         <Tile className="gap-4">
-          <Label>Settlement account</Label>
+          <Label>{isFunder ? 'Funding account' : 'Settlement account'}</Label>
           <p className="-mt-2 text-[0.75rem] text-faint">
-            Used to confirm the account you will be paid into matches your business. Full details are shared per agreement.
+            {isFunder
+              ? 'Used to confirm the account you fund from belongs to your institution. PLEXUS never holds or moves money.'
+              : 'Used to confirm the account you will be paid into matches your business. Full details are shared per agreement.'}
           </p>
           <div className="grid gap-3 sm:grid-cols-3">
             <Input label="Bank" value={form.bankName} onChange={set('bankName')} maxLength={64} />

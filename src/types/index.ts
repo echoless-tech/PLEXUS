@@ -14,7 +14,10 @@
 //    other authenticated users.
 // ─────────────────────────────────────────────────────────────────────
 
-export type Role = 'sme' | 'buyer';
+export type Role = 'sme' | 'buyer' | 'funder';
+
+/** Chosen once at sign-up / first login. Write-once in the rules. */
+export type AccountType = 'business' | 'funder';
 
 export type VerificationStatus = 'unverified' | 'pending' | 'verified';
 
@@ -71,8 +74,13 @@ export interface Contract {
   currency: 'ZAR';
   /** ISO date (YYYY-MM-DD) */
   expectedDelivery: string;
-  paymentInstructions: PaymentInstructions;
   disputeRules: string;
+  /**
+   * SME opted to list this agreement's payment plan for funders. Funders can
+   * read the header, milestones and events of listed agreements — never the
+   * private payment details.
+   */
+  seekingFunding: boolean;
   status: ContractStatus;
   milestoneCount: number;
   smeAcceptedAt: Date | null;
@@ -83,6 +91,15 @@ export interface Contract {
   cancelledBy: string | null;
   cancelReason: string | null;
   createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * contracts/{cid}/private/payment — the SME's settlement details. Readable
+ * only by the two parties; funders never see it. Written with the contract
+ * (draft) and locked with it.
+ */
+export interface ContractPaymentDetails extends PaymentInstructions {
   updatedAt: Date;
 }
 
@@ -132,6 +149,8 @@ export type ContractEventType =
   | 'contract_declined'
   | 'contract_cancelled'
   | 'contract_completed'
+  | 'contract_listed_for_funding'
+  | 'contract_unlisted_for_funding'
   | 'milestone_evidence_submitted'
   | 'milestone_evidence_withdrawn'
   | 'milestone_rejected'
@@ -169,21 +188,94 @@ export interface Verification {
   bankName: string;
   accountHolder: string;
   accountNumberLast4: string;
+  /** Funders only — FSP / NCR / other licence reference, if any. */
+  licenceNumber: string;
   status: VerificationStatus;
   submittedAt: Date | null;
   updatedAt: Date;
 }
 
-/** Readable by any signed-in user — deliberately minimal. */
+export type Industry =
+  | 'manufacturing'
+  | 'construction'
+  | 'retail'
+  | 'food'
+  | 'services'
+  | 'logistics'
+  | 'technology'
+  | 'agriculture'
+  | 'creative'
+  | 'other';
+
+/**
+ * Readable by any signed-in user. Deliberately holds only what a business
+ * would put on a storefront — never identity or bank data.
+ */
 export interface PublicProfile {
   uid: string;
+  accountType: AccountType | null;
   businessName: string;
   verificationStatus: VerificationStatus;
+  /** Small data-URL logo (rules cap the size). */
+  logoDataUrl: string | null;
+  industry: Industry | null;
+  description: string;
+  location: string;
+  /** Contact address the business chooses to publish (may differ from login). */
+  publicEmail: string;
   createdAt: Date;
+}
+
+export type DocumentKind = 'invoice' | 'receipt' | 'bank_statement' | 'other';
+
+/** pending_review → AI analysis not yet run (implemented later). */
+export type DocumentAnalysisStatus = 'pending_review' | 'analysed' | 'flagged';
+
+/**
+ * profiles/{uid}/documents/{docId} — the business's own evidence of
+ * performance (Run section). Owner-only. Small files inline as data URLs.
+ */
+export interface BusinessDocument {
+  id: string;
+  kind: DocumentKind;
+  title: string;
+  /** ISO date the document is dated (invoice date, statement month, etc.). */
+  documentDate: string;
+  /** Total on the document, in ZAR, if applicable. */
+  amount: number | null;
+  counterparty: string;
+  note: string;
+  fileName: string | null;
+  mimeType: string | null;
+  dataUrl: string | null;
+  analysisStatus: DocumentAnalysisStatus;
+  analysisNote: string | null;
+  createdAt: Date;
+}
+
+/** Derived, never stored — computed from rule-enforced contract data. */
+export interface BusinessRating {
+  /** 0–5 */
+  score: number;
+  /** How much data backs the score. */
+  confidence: 'none' | 'low' | 'medium' | 'high';
+  agreementsTotal: number;
+  agreementsActive: number;
+  agreementsCompleted: number;
+  agreementsCancelled: number;
+  milestonesPaid: number;
+  milestonesTotal: number;
+  disputesRaised: number;
+  rejectionsReceived: number;
+  valueContracted: number;
+  valuePaid: number;
+  /** Fraction of stages approved without a return. */
+  firstTimeApprovalRate: number | null;
 }
 
 /** Contract as the current user sees it. */
 export interface ContractView extends Contract {
+  /** 'funder' = read-only observer of a listed agreement. */
   myRole: Role;
   /** Buyer invited by email but not yet claimed the contract. */
   awaitingMyAcceptance: boolean;
@@ -200,6 +292,21 @@ export const LIMITS = {
   reference: 64,
   fileName: 160,
   evidenceDataUrl: 700_000,
+  logoDataUrl: 200_000,
+  documentDataUrl: 700_000,
   maxMilestones: 12,
   maxContractValue: 100_000_000,
 } as const;
+
+export const INDUSTRY_LABELS: Record<Industry, string> = {
+  manufacturing: 'Manufacturing',
+  construction: 'Construction & trades',
+  retail: 'Retail & wholesale',
+  food: 'Food & hospitality',
+  services: 'Professional services',
+  logistics: 'Logistics & transport',
+  technology: 'Technology',
+  agriculture: 'Agriculture',
+  creative: 'Creative & media',
+  other: 'Other',
+};

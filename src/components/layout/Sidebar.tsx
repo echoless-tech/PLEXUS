@@ -1,6 +1,18 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, FileSignature, FilePlus2, ShieldCheck, Settings, X } from 'lucide-react';
+import {
+  LayoutDashboard,
+  FileSignature,
+  FilePlus2,
+  ShieldCheck,
+  Settings,
+  X,
+  FolderOpen,
+  Users,
+  BarChart3,
+  Landmark,
+  ListChecks,
+} from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { cn } from '../../lib/cn';
 
@@ -20,10 +32,18 @@ interface NavItem {
   prefix?: boolean;
 }
 
-const mainNav: NavItem[] = [
+const businessNav: NavItem[] = [
   { title: 'Dashboard', path: '/', icon: <LayoutDashboard size={19} strokeWidth={1.75} /> },
+  { title: 'Run', path: '/run', icon: <FolderOpen size={19} strokeWidth={1.75} /> },
+  { title: 'Connect', path: '/connect', icon: <Users size={19} strokeWidth={1.75} /> },
+  { title: 'Statistics', path: '/statistics', icon: <BarChart3 size={19} strokeWidth={1.75} /> },
   { title: 'Agreements', path: '/contracts', icon: <FileSignature size={19} strokeWidth={1.75} />, prefix: true },
   { title: 'New agreement', path: '/contracts/new', icon: <FilePlus2 size={19} strokeWidth={1.75} /> },
+];
+
+const funderNav: NavItem[] = [
+  { title: 'SMEs', path: '/', icon: <Landmark size={19} strokeWidth={1.75} /> },
+  { title: 'Payment plans', path: '/funder/plans', icon: <ListChecks size={19} strokeWidth={1.75} /> },
 ];
 
 const secondaryNav: NavItem[] = [
@@ -89,6 +109,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ width, collapsedWidth }) => {
   const setMobileNavOpen = useAppStore((s) => s.setMobileNavOpen);
   const businessName = useAppStore((s) => s.profile?.businessName || 'My business');
   const verificationStatus = useAppStore((s) => s.profile?.verificationStatus || 'unverified');
+  const accountType = useAppStore((s) => s.profile?.accountType);
+  const mainNav = accountType === 'funder' ? funderNav : businessNav;
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -175,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ width, collapsedWidth }) => {
             <div className="flex flex-col leading-none">
               <span className="text-[1.25rem] font-bold tracking-[-0.02em] text-ink">PLEXUS</span>
               <span className="mt-1 text-[0.625rem] font-semibold uppercase tracking-[var(--tracking-label)] text-faint">
-                Progressive payments
+                {accountType === 'funder' ? 'Funder workspace' : 'Progressive payments'}
               </span>
             </div>
           )}
@@ -191,7 +213,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ width, collapsedWidth }) => {
 
         {/* Navigation */}
         <nav className="plexus-scroll flex flex-1 flex-col gap-1 overflow-y-auto px-3">
-          <SectionLabel open={open}>Menu</SectionLabel>
+          <SectionLabel open={open}>{accountType === 'funder' ? 'Funding' : 'Menu'}</SectionLabel>
           {mainNav.map((item) => (
             <NavRow key={item.path} item={item} open={open} onNavigate={closeMobile} />
           ))}

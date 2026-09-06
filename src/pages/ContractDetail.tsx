@@ -2,16 +2,23 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Lock, Send, Undo2, Ban, CheckCircle2, Upload, XCircle, AlertTriangle,
-  Copy, Loader2, Pencil, ShieldCheck, FileText, Clock, Banknote, Scale,
+  Copy, Loader2, Pencil, ShieldCheck, FileText, Clock, Banknote, Scale, Landmark, Eye,
 } from 'lucide-react';
 import { Tile, Button, GhostButton, Label } from '../components/ui';
 import { ContractStatusPill, MilestoneStatusPill, VerificationBadge, PayShapLogo } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import * as svc from '../services/contracts';
 import { fetchProfile } from '../services/profile';
-import type { ContractView, ContractEvent, EvidenceType, Milestone, PublicProfile, Role } from '../types';
+import type { ContractView, ContractEvent, ContractPaymentDetails, EvidenceType, Milestone, PublicProfile, Role } from '../types';
 import { LIMITS } from '../types';
 import { zar, fmtDate, fmtDateTime, paymentReferenceFor } from '../lib/format';
+
+const payToLabel = (p: ContractPaymentDetails | null, long = false): string => {
+  if (!p) return 'Private to the parties';
+  if (p.method === 'payshap') return `PayShap${long ? ' · ' : ' '}${p.payshapId || ''}`;
+  const branch = long && p.branchCode ? ` · ${p.branchCode}` : '';
+  return `${p.bankName || 'Bank'}${long ? ' · ' : ' '}${p.accountNumber || ''}${branch}`;
+};
 
 const EVIDENCE_TYPES: { value: EvidenceType; label: string }[] = [
   { value: 'buyer_acknowledgement', label: 'Buyer acknowledgement' },
@@ -44,6 +51,7 @@ const ContractDetail: React.FC = () => {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [events, setEvents] = useState<ContractEvent[]>([]);
   const [counterparty, setCounterparty] = useState<PublicProfile | null>(null);
+  const [payment, setPayment] = useState<ContractPaymentDetails | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [modal, setModal] = useState<ModalKind>(null);
@@ -60,12 +68,22 @@ const ContractDetail: React.FC = () => {
         setReady(true);
       },
       (e) => {
-        setLoadError(e.message.includes('permission') ? 'You are not a party to this agreement.' : e.message);
+        setLoadError(e.message.includes('permission') ? 'You are not a party to this agreement, or it is not listed for funders.' : e.message);
         setReady(true);
       },
     );
     return unsub;
   }, [id]);
+
+  // Settlement details live in a private sub-document only the parties can read.
+  // Funders get null here (denied by rules) and see a privacy notice instead.
+  useEffect(() => {
+    if (!contract || contract.myRole === 'funder') {
+      setPayment(null);
+      return;
+    }
+    svc.fetchPaymentDetails(contract.id).then(setPayment).catch(() => setPayment(null));
+  }, [contract?.id, contract?.myRole, contract?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Counterparty's public profile (name + verification status only).
   useEffect(() => {
@@ -80,7 +98,7 @@ const ContractDetail: React.FC = () => {
 
   // Auto close-out: when every stage is paid, either party's client completes the agreement.
   useEffect(() => {
-    if (!contract || contract.status !== 'active' || !milestones.length) return;
+    if (!contract || contract.myRole === 'funder' || contract.status !== 'active' || !milestones.length) return;
     if (milestones.every((m) => m.status === 'paid')) {
       svc.completeContract(contract).then(loadContracts).catch(() => undefined);
     }
@@ -88,15 +106,17 @@ const ContractDetail: React.FC = () => {
 
   const summary = useMemo(() => svc.summarise(milestones), [milestones]);
 
-  const run = async (label: string, fn: () => Promise<void>) => {
+  const run = async (label: string, fn: () => Promise<void>): Promise<boolean> => {
     setBusy(true);
     try {
       await fn();
       showToast(label, 'success');
       setModal(null);
       loadContracts();
+      return true;
     } catch (e: any) {
       showToast(e?.code === 'permission-denied' ? 'That action is not allowed for your role or at this stage.' : e?.message || 'Action failed.', 'error');
+      return false;
     } finally {
       setBusy(false);
     }
@@ -122,23 +142,30 @@ const ContractDetail: React.FC = () => {
   const role: Role = c.myRole;
   const isSme = role === 'sme';
   const isBuyer = role === 'buyer';
-  const otherName = isSme ? c.buyerName || c.buyerEmail : c.smeName;
+  const isFunder = role === 'funder';
   const progress = c.totalValue ? Math.min(100, Math.round((summary.paid / c.totalValue) * 100)) : 0;
+  const backTo = isFunder ? '/funder/plans' : '/contracts';
+  const canToggleListing = isSme && (c.status === 'draft' || c.status === 'proposed' || c.status === 'active');
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-4 py-6">
         <div className="min-w-0">
-          <button onClick={() => navigate('/contracts')} className="mb-2 inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-muted hover:text-ink">
-            <ArrowLeft className="h-4 w-4" /> Agreements
+          <button onClick={() => navigate(backTo)} className="mb-2 inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-muted hover:text-ink">
+            <ArrowLeft className="h-4 w-4" /> {isFunder ? 'Payment plans' : 'Agreements'}
           </button>
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-[1.5rem] font-bold tracking-[-0.02em] text-ink sm:text-[1.875rem]">{c.title}</h1>
             <ContractStatusPill status={c.status} />
+            {c.seekingFunding && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-[0.6875rem] font-semibold text-accent">
+                <Landmark className="h-3 w-3" /> Looking for funds
+              </span>
+            )}
           </div>
           <p className="mt-1.5 text-[0.875rem] text-muted">
-            {isSme ? 'You supply' : `${c.smeName} supplies`} · {isBuyer ? 'you pay' : `${otherName} pays`} · delivery by {fmtDate(c.expectedDelivery)}
+            {isSme ? 'You supply' : `${c.smeName} supplies`} · {isBuyer ? 'you pay' : `${c.buyerName || c.buyerEmail} pays`} · delivery by {fmtDate(c.expectedDelivery)}
           </p>
         </div>
         <div className="text-right">
@@ -146,6 +173,21 @@ const ContractDetail: React.FC = () => {
           <p className="text-[0.75rem] text-muted">{c.milestoneCount} payment stages</p>
         </div>
       </div>
+
+      {/* ── Funder observer notice ─────────────────────────────────── */}
+      {isFunder && (
+        <Tile className="flex-row items-start gap-3 bg-surface-inset/60">
+          <Eye className="mt-0.5 h-5 w-5 shrink-0 text-muted" />
+          <div className="text-[0.8125rem] text-muted">
+            <p className="font-semibold text-ink">Read-only view</p>
+            <p>
+              {c.smeName} listed this payment plan for funders. You can follow every stage, approval and payment as it
+              happens, but only the two parties can act on it. Settlement account details are private to them. Contact{' '}
+              {c.smeName} via their profile to discuss funding.
+            </p>
+          </div>
+        </Tile>
+      )}
 
       {/* ── Buyer acceptance panel ─────────────────────────────────── */}
       {c.awaitingMyAcceptance && (
@@ -188,9 +230,15 @@ const ContractDetail: React.FC = () => {
           <Label>Buyer (pays)</Label>
           <p className="truncate text-[0.9375rem] font-semibold text-ink">{c.buyerName || c.buyerEmail}</p>
           {c.buyerUid ? (
-            isBuyer ? <VerificationBadge status={profile?.verificationStatus || 'unverified'} /> : counterparty && <VerificationBadge status={counterparty.verificationStatus} />
+            isBuyer ? (
+              <VerificationBadge status={profile?.verificationStatus || 'unverified'} />
+            ) : isSme && counterparty ? (
+              <VerificationBadge status={counterparty.verificationStatus} />
+            ) : (
+              <span className="text-[0.75rem] text-faint">Accepted party</span>
+            )
           ) : (
-            <span className="text-[0.75rem] text-faint">Invited · {c.buyerEmail}</span>
+            <span className="text-[0.75rem] text-faint">Invited{isFunder ? '' : ` · ${c.buyerEmail}`}</span>
           )}
         </Tile>
         <Tile className="gap-2">
@@ -237,6 +285,36 @@ const ContractDetail: React.FC = () => {
           </Button>
         </div>
       )}
+
+      {/* ── Funding listing toggle (SME only; header-only change, terms untouched) ── */}
+      {canToggleListing && (
+        <Tile className="flex-row flex-wrap items-center gap-3">
+          <Landmark className={'h-5 w-5 shrink-0 ' + (c.seekingFunding ? 'text-accent' : 'text-muted')} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[0.875rem] font-semibold text-ink">
+              {c.seekingFunding ? 'Listed for funders' : 'Not listed for funders'}
+            </p>
+            <p className="text-[0.75rem] text-muted">
+              {c.seekingFunding
+                ? 'Verified funders can see this plan, its live progress and your rating. Bank details stay private.'
+                : 'Tick this to appear on the funder marketplace against this payment plan.'}
+            </p>
+          </div>
+          <Button
+            variant={c.seekingFunding ? 'soft' : 'accent'}
+            disabled={busy}
+            onClick={() =>
+              run(
+                c.seekingFunding ? 'Listing removed.' : 'Listed for funders.',
+                () => svc.setSeekingFunding(c, !c.seekingFunding),
+              )
+            }
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Landmark className="h-4 w-4" />}
+            {c.seekingFunding ? 'Remove listing' : 'Look for funds'}
+          </Button>
+        </Tile>
+      )}
       {c.status === 'cancelled' && (
         <Tile className="gap-1 bg-negative/5">
           <p className="text-[0.875rem] font-semibold text-negative">Cancelled</p>
@@ -252,13 +330,19 @@ const ContractDetail: React.FC = () => {
         </Tile>
         <Tile className="gap-2">
           <Label>Payment details</Label>
-          <p className="flex items-center gap-2 text-[0.875rem] text-ink">
-            {c.paymentInstructions.method === 'payshap' ? <PayShapLogo className="h-4 w-4" /> : <Banknote className="h-4 w-4 text-muted" />}
-            {c.paymentInstructions.method === 'payshap'
-              ? `PayShap · ${c.paymentInstructions.payshapId}`
-              : `${c.paymentInstructions.bankName || 'Bank'} · ${c.paymentInstructions.accountNumber}${c.paymentInstructions.branchCode ? ` · ${c.paymentInstructions.branchCode}` : ''}`}
-          </p>
-          <p className="text-[0.8125rem] text-muted">Account holder: {c.paymentInstructions.accountHolder}</p>
+          {payment ? (
+            <>
+              <p className="flex items-center gap-2 text-[0.875rem] text-ink">
+                {payment.method === 'payshap' ? <PayShapLogo className="h-4 w-4" /> : <Banknote className="h-4 w-4 text-muted" />}
+                {payToLabel(payment, true)}
+              </p>
+              <p className="text-[0.8125rem] text-muted">Account holder: {payment.accountHolder}</p>
+            </>
+          ) : (
+            <p className="flex items-center gap-2 text-[0.875rem] text-muted">
+              <Lock className="h-4 w-4" /> {isFunder ? 'Settlement details are private to the supplier and buyer.' : 'Loading settlement details…'}
+            </p>
+          )}
           <p className="mt-1 text-[0.75rem] text-faint">PLEXUS never holds funds — each stage is paid directly with the reference shown on it.</p>
         </Tile>
       </div>
@@ -272,6 +356,7 @@ const ContractDetail: React.FC = () => {
             m={m}
             index={i}
             contract={c}
+            payment={payment}
             role={role}
             busy={busy}
             firstOpen={milestones.findIndex((x) => x.status !== 'paid') === i}
@@ -311,7 +396,7 @@ const ContractDetail: React.FC = () => {
       </Tile>
 
       {/* ── Active-phase cancel ────────────────────────────────────── */}
-      {c.status === 'active' && (
+      {c.status === 'active' && !isFunder && (
         <div className="flex justify-end">
           <button onClick={() => setModal({ kind: 'cancel' })} className="text-[0.75rem] text-faint hover:text-negative">
             Cancel this agreement…
@@ -319,7 +404,7 @@ const ContractDetail: React.FC = () => {
         </div>
       )}
 
-      {modal && (
+      {modal && !isFunder && (
         <ActionModal
           modal={modal}
           contract={c}
@@ -339,14 +424,15 @@ const MilestoneCard: React.FC<{
   m: Milestone;
   index: number;
   contract: ContractView;
+  payment: ContractPaymentDetails | null;
   role: Role;
   busy: boolean;
   firstOpen: boolean;
   onAction: (k: 'evidence' | 'reject' | 'pay' | 'dispute' | 'resolve') => void;
   onApprove: () => void;
   onWithdraw: () => void;
-}> = ({ m, index, contract: c, role, busy, firstOpen, onAction, onApprove, onWithdraw }) => {
-  const active = c.status === 'active';
+}> = ({ m, index, contract: c, payment, role, busy, firstOpen, onAction, onApprove, onWithdraw }) => {
+  const active = c.status === 'active' && role !== 'funder';
   const isSme = role === 'sme';
   const isBuyer = role === 'buyer';
   const ref = paymentReferenceFor(c.id, m.order);
@@ -431,9 +517,7 @@ const MilestoneCard: React.FC<{
             </div>
             <div>
               <p className="text-[0.6875rem] uppercase tracking-[0.08em] text-muted">Pay to</p>
-              <p className="truncate font-semibold text-ink">
-                {c.paymentInstructions.method === 'payshap' ? `PayShap ${c.paymentInstructions.payshapId}` : `${c.paymentInstructions.bankName || 'Bank'} ${c.paymentInstructions.accountNumber}`}
-              </p>
+              <p className="truncate font-semibold text-ink">{payToLabel(payment)}</p>
             </div>
             <div>
               <p className="text-[0.6875rem] uppercase tracking-[0.08em] text-muted">Reference</p>
@@ -503,8 +587,9 @@ const ActionModal: React.FC<{
   role: Role;
   busy: boolean;
   onClose: () => void;
-  run: (label: string, fn: () => Promise<void>) => Promise<void>;
+  run: (label: string, fn: () => Promise<void>) => Promise<boolean>;
 }> = ({ modal, contract: c, role, busy, onClose, run }) => {
+  const navigate = useNavigate();
   const [text, setText] = useState('');
   const [evType, setEvType] = useState<EvidenceType>('delivery_confirmation');
   const [file, setFile] = useState<{ name: string; dataUrl: string } | null>(null);
@@ -571,7 +656,9 @@ const ActionModal: React.FC<{
         return run('Agreement cancelled.', () => svc.cancelContract(c, text));
       case 'decline':
         if (!text.trim()) return setErr('Give a reason so the supplier understands.');
-        return run('Proposal declined.', () => svc.declineContract(c, text));
+        // An invited (never-accepted) buyer loses read access once the proposal
+        // is no longer 'proposed', so leave the page after declining.
+        return run('Proposal declined.', () => svc.declineContract(c, text)).then((ok) => ok && navigate('/contracts'));
       case 'accept':
         if (!name.trim()) return setErr('Enter your business name as it should appear on the agreement.');
         return run('Agreement accepted. Terms are now locked.', () => svc.acceptContract(c, name));

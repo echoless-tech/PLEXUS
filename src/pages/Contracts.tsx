@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FilePlus2, ChevronRight, Inbox } from 'lucide-react';
+import { FilePlus2, ChevronRight, Inbox, Landmark } from 'lucide-react';
 import { PageHeader, Tile, Button, SegmentTabs } from '../components/ui';
 import { ContractStatusPill } from '../components/common';
 import { useAppStore } from '../stores/appStore';
@@ -92,6 +92,11 @@ export const ContractRow: React.FC<{ c: ContractView; onOpen: () => void }> = ({
           <span className="rounded-full bg-accent px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-accent-contrast">Accept?</span>
         ) : (
           <ContractStatusPill status={c.status} />
+        )}
+        {c.seekingFunding && c.status !== 'cancelled' && (
+          <span title="Looking for funds" className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">
+            <Landmark className="h-3 w-3" /> Funds
+          </span>
         )}
       </div>
       <p className="truncate text-[0.8125rem] text-muted">
