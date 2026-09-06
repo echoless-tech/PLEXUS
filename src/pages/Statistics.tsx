@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, ShieldCheck, Landmark, FileText, TrendingUp } from 'lucide-react';
-import { PageHeader, Tile, Label, Metric } from '../components/ui';
+import { BarChart3, ShieldCheck, Landmark, TrendingUp } from 'lucide-react';
+import { PageHeader, Tile, Label, StatRow } from '../components/ui';
 import { RatingStars, VerificationBadge, ContractStatusPill } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import { fetchMilestones, summarise } from '../services/contracts';
@@ -21,10 +21,9 @@ const Statistics: React.FC = () => {
   const navigate = useNavigate();
   const profile = useAppStore((s) => s.profile);
   const contracts = useAppStore((s) => s.contracts);
-  const documents = useAppStore((s) => s.documents);
 
   const asSupplier = useMemo(() => contracts.filter((c) => c.myRole === 'sme'), [contracts]);
-  const asBuyer = useMemo(() => contracts.filter((c) => c.myRole === 'buyer'), [contracts]);
+  const asBuyerLive = useMemo(() => contracts.filter((c) => c.myRole === 'buyer' && c.status !== 'draft'), [contracts]);
 
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +76,10 @@ const Statistics: React.FC = () => {
           <div>
             <p className="text-[1.0625rem] font-bold text-ink">{profile?.businessName}</p>
             <RatingStars rating={rating} size={16} />
+            <p className="mt-1 text-[0.75rem] text-muted">
+              {rating.agreementsTotal} agreement{rating.agreementsTotal === 1 ? '' : 's'} as supplier ({rating.agreementsActive} active ·{' '}
+              {rating.agreementsCompleted} completed · {rating.agreementsCancelled} cancelled) · {asBuyerLive.length} as buyer
+            </p>
             <div className="mt-1.5">{profile && <VerificationBadge status={profile.verificationStatus} />}</div>
           </div>
         </div>
@@ -86,34 +89,23 @@ const Statistics: React.FC = () => {
         </p>
       </Tile>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Metric label="Stages paid" value={`${rating.milestonesPaid} / ${rating.milestonesTotal}`} hint="on live agreements" />
-        <Metric label="Received" value={zar(rating.valuePaid, false)} hint={`of ${zar(rating.valueContracted, false)} contracted`} accent={money.awaitingPayment > 0} />
-        <Metric label="Approved first time" value={pct(rating.firstTimeApprovalRate)} hint={`${rating.rejectionsReceived} stage${rating.rejectionsReceived === 1 ? '' : 's'} returned`} />
-        <Metric label="Disputes" value={String(rating.disputesRaised)} hint={rating.disputesRaised === 0 ? 'clean record' : 'raised on your agreements'} />
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <Tile className="gap-1.5">
-          <Label>Agreements as supplier</Label>
-          <p className="tnum text-[1.5rem] font-bold text-ink">{rating.agreementsTotal}</p>
-          <p className="text-[0.75rem] text-muted">
-            {rating.agreementsActive} active · {rating.agreementsCompleted} completed · {rating.agreementsCancelled} cancelled
-          </p>
-        </Tile>
-        <Tile className="gap-1.5">
-          <Label>Agreements as buyer</Label>
-          <p className="tnum text-[1.5rem] font-bold text-ink">{asBuyer.filter((c) => c.status !== 'draft').length}</p>
-          <p className="text-[0.75rem] text-muted">{asBuyer.filter((c) => c.status === 'active').length} active</p>
-        </Tile>
-        <Tile interactive as="button" onClick={() => navigate('/run')} className="gap-1.5 text-left">
-          <Label>Records on file</Label>
-          <p className="tnum text-[1.5rem] font-bold text-ink">{documents.length}</p>
-          <p className="flex items-center gap-1 text-[0.75rem] text-muted">
-            <FileText className="h-3.5 w-3.5" /> {documents.filter((d) => d.analysisStatus === 'pending_review').length} pending AI review
-          </p>
-        </Tile>
-      </div>
+      <StatRow
+        stats={[
+          { label: 'Stages paid', value: `${rating.milestonesPaid} / ${rating.milestonesTotal}`, hint: 'on live agreements' },
+          {
+            label: 'Received',
+            value: zar(rating.valuePaid, false),
+            hint: money.awaitingPayment > 0 ? `${zar(money.awaitingPayment, false)} approved, awaiting payment` : `of ${zar(rating.valueContracted, false)} contracted`,
+            accent: money.awaitingPayment > 0,
+          },
+          {
+            label: 'Approved first time',
+            value: pct(rating.firstTimeApprovalRate),
+            hint: `${rating.rejectionsReceived} stage${rating.rejectionsReceived === 1 ? '' : 's'} returned`,
+          },
+          { label: 'Disputes', value: String(rating.disputesRaised), hint: rating.disputesRaised === 0 ? 'clean record' : 'raised on your agreements' },
+        ]}
+      />
 
       {/* ── Funder visibility ─────────────────────────────────────── */}
       <Tile className="flex-row flex-wrap items-center gap-3 bg-surface-inset/60">

@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FilePlus2, ShieldAlert, ArrowRight, Sparkles, Loader2, ScanLine, Users, BarChart3 } from 'lucide-react';
-import { PageHeader, Tile, Button, Metric, Label } from '../components/ui';
+import { PageHeader, Tile, Button, Label } from '../components/ui';
 import { useAppStore } from '../stores/appStore';
-import { fetchMilestones, summarise, createContract } from '../services/contracts';
+import { fetchMilestones, createContract } from '../services/contracts';
 import type { ContractView, Milestone } from '../types';
-import { zar } from '../lib/format';
 import { ContractRow } from './Contracts';
 
 const SECTIONS = [
@@ -58,12 +57,6 @@ const Dashboard: React.FC = () => {
       cancelled = true;
     };
   }, [open.map((c) => c.id + c.updatedAt.getTime()).join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const money = useMemo(() => {
-    const asSme = summarise(open.filter((c) => c.myRole === 'sme').flatMap((c) => milestonesByContract[c.id] || []));
-    const asBuyer = summarise(open.filter((c) => c.myRole === 'buyer').flatMap((c) => milestonesByContract[c.id] || []));
-    return { asSme, asBuyer };
-  }, [open, milestonesByContract]);
 
   const needsAction = useMemo(() => {
     const items: { c: ContractView; label: string }[] = [];
@@ -166,13 +159,6 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Metric label="Received (as supplier)" value={zar(money.asSme.paid, false)} hint="paid to you" />
-        <Metric label="Still to receive" value={zar(money.asSme.outstanding, false)} hint={money.asSme.awaitingPayment ? `${zar(money.asSme.awaitingPayment, false)} approved` : undefined} accent={money.asSme.awaitingPayment > 0} />
-        <Metric label="Paid out (as buyer)" value={zar(money.asBuyer.paid, false)} hint="on approved stages" />
-        <Metric label="Active agreements" value={String(open.length)} hint={listedForFunding ? `${listedForFunding} listed for funders` : `${contracts.length} total`} />
-      </div>
-
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label>Needs your action</Label>
@@ -211,8 +197,13 @@ const Dashboard: React.FC = () => {
 
       {contracts.length > 0 && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Label>Recent agreements</Label>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <Label>Recent agreements</Label>
+              <span className="text-[0.75rem] text-muted">
+                {open.length} active · {contracts.length} total{listedForFunding ? ` · ${listedForFunding} listed for funders` : ''}
+              </span>
+            </div>
             <button onClick={() => navigate('/contracts')} className="text-[0.8125rem] font-medium text-muted hover:text-ink">View all</button>
           </div>
           <div className="space-y-2.5">

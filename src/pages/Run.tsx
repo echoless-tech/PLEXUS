@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { ScanLine, Upload, FileText, Trash2, Loader2, Camera, Sparkles, Receipt, Landmark, File } from 'lucide-react';
-import { PageHeader, Tile, Button, Label, Metric, SegmentTabs } from '../components/ui';
+import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
 import { useAppStore } from '../stores/appStore';
 import { addDocument, removeDocument, type DocumentInput } from '../services/profile';
 import { fileToDataUrl } from '../lib/files';
@@ -58,10 +58,9 @@ const Run: React.FC = () => {
     return documents.filter((d) => d.kind === kind);
   }, [documents, tab]);
 
-  const totals = useMemo(() => {
-    const sum = (k: DocumentKind) => documents.filter((d) => d.kind === k).reduce((s, d) => s + (d.amount || 0), 0);
-    return { invoiced: sum('invoice'), receipts: sum('receipt'), statements: documents.filter((d) => d.kind === 'bank_statement').length };
-  }, [documents]);
+  // Sum of the amounts in view — meaningful for invoices/receipts, so it sits with the list.
+  const filteredTotal = useMemo(() => filtered.reduce((s, d) => s + (d.amount || 0), 0), [filtered]);
+  const filterLabel = tab === 0 ? 'record' : KINDS[tab - 1].label.toLowerCase();
 
   const set = <K extends keyof DocumentInput>(k: K, v: DocumentInput[K]) => setInput((i) => ({ ...i, [k]: v }));
 
@@ -127,13 +126,6 @@ const Run: React.FC = () => {
         title="Business records"
         subtitle="Scan invoices, receipts and bank statements. They build the performance picture behind your rating and stay private to you."
       />
-
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Metric label="Documents" value={String(documents.length)} hint="on record" />
-        <Metric label="Invoiced" value={zar(totals.invoiced, false)} hint="total across invoices" />
-        <Metric label="Receipts" value={zar(totals.receipts, false)} hint="total across receipts" />
-        <Metric label="Bank statements" value={String(totals.statements)} hint="months uploaded" />
-      </div>
 
       <Tile className="flex-row items-start gap-3 bg-surface-inset/60">
         <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
@@ -242,6 +234,16 @@ const Run: React.FC = () => {
         {/* ── Records list ─────────────────────────────────────────── */}
         <div className="space-y-3">
           <SegmentTabs tabs={['All', ...KINDS.map((k) => k.label)]} value={tab} onChange={setTab} className="w-full overflow-x-auto [&>button]:flex-1 [&>button]:whitespace-nowrap" />
+          {filtered.length > 0 && (
+            <div className="flex items-baseline justify-between gap-3 px-1">
+              <Label>
+                {filtered.length} {filterLabel}{filtered.length === 1 ? '' : 's'}
+              </Label>
+              {filteredTotal > 0 && tab !== 0 && (
+                <span className="tnum text-[0.8125rem] font-semibold text-ink">{zar(filteredTotal)} total</span>
+              )}
+            </div>
+          )}
           {filtered.length === 0 ? (
             <Tile className="items-center gap-2 py-12 text-center">
               <ScanLine className="h-8 w-8 text-faint" />

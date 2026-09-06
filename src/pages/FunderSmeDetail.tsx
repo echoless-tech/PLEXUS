@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, MapPin, Mail, Landmark, ShieldCheck, Copy, ArrowRight, Lock } from 'lucide-react';
-import { Tile, Button, Label, Metric } from '../components/ui';
+import { Tile, Button, Label, StatRow } from '../components/ui';
 import { BusinessAvatar, RatingStars, VerificationBadge, ContractStatusPill } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import { fetchProfile } from '../services/profile';
@@ -139,13 +139,29 @@ const FunderSmeDetail: React.FC = () => {
         </Tile>
       </div>
 
-      {/* ── Statistics ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Metric label="Listed agreements" value={String(rating.agreementsTotal)} hint={`${rating.agreementsActive} active · ${rating.agreementsCompleted} completed`} />
-        <Metric label="Stages paid" value={`${rating.milestonesPaid} / ${rating.milestonesTotal}`} hint="buyer-confirmed" />
-        <Metric label="Received" value={zar(rating.valuePaid, false)} hint={`of ${zar(rating.valueContracted, false)} contracted`} accent={money.awaitingPayment > 0} />
-        <Metric label="Approved first time" value={pct(rating.firstTimeApprovalRate)} hint={`${rating.rejectionsReceived} returned · ${rating.disputesRaised} disputed`} critical={rating.disputesRaised > 0} />
-      </div>
+      {/* ── Statistics (from listed agreements only) ───────────────── */}
+      <StatRow
+        stats={[
+          {
+            label: 'Listed agreements',
+            value: String(rating.agreementsTotal),
+            hint: `${rating.agreementsActive} active · ${rating.agreementsCompleted} completed`,
+          },
+          { label: 'Stages paid', value: `${rating.milestonesPaid} / ${rating.milestonesTotal}`, hint: 'buyer-confirmed' },
+          {
+            label: 'Received',
+            value: zar(rating.valuePaid, false),
+            hint: money.awaitingPayment > 0 ? `${zar(money.awaitingPayment, false)} approved, unpaid` : `of ${zar(rating.valueContracted, false)} contracted`,
+            accent: money.awaitingPayment > 0,
+          },
+          {
+            label: 'Approved first time',
+            value: pct(rating.firstTimeApprovalRate),
+            hint: `${rating.rejectionsReceived} returned · ${rating.disputesRaised} disputed`,
+            accent: rating.disputesRaised > 0,
+          },
+        ]}
+      />
 
       {/* ── Payment plans ─────────────────────────────────────────── */}
       <div className="space-y-3">

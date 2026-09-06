@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Landmark, ArrowRight, ShieldAlert, RefreshCw, Inbox } from 'lucide-react';
-import { PageHeader, Tile, Button, Label, Metric, SegmentTabs } from '../components/ui';
+import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
 import { BusinessAvatar, ContractStatusPill } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import { useMilestonesFor } from '../hooks/useMilestonesFor';
@@ -45,15 +45,8 @@ const FunderOpportunities: React.FC = () => {
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   }, [opportunities, tab]);
 
-  const totals = useMemo(() => {
-    const s = summarise(all);
-    return {
-      listed: opportunities.length,
-      value: opportunities.reduce((x, c) => x + c.totalValue, 0),
-      paid: s.paid,
-      awaiting: s.awaitingPayment,
-    };
-  }, [opportunities, all]);
+  // The one number a funder acts on: buyer-approved stages not yet paid.
+  const awaiting = useMemo(() => summarise(all).awaitingPayment, [all]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -91,19 +84,17 @@ const FunderOpportunities: React.FC = () => {
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Metric label="Listed plans" value={String(totals.listed)} hint="seeking funds" />
-        <Metric label="Contracted value" value={zar(totals.value, false)} hint="across listed plans" />
-        <Metric label="Paid to date" value={zar(totals.paid, false)} hint="buyer-confirmed" />
-        <Metric label="Approved, unpaid" value={zar(totals.awaiting, false)} hint="the gap funders can bridge" accent={totals.awaiting > 0} />
-      </div>
-
       <Tile className="flex-row items-start gap-3 bg-surface-inset/60">
         <Landmark className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
         <p className="text-[0.8125rem] text-muted">
           <span className="font-semibold text-ink">Where funding fits.</span> A stage marked <em>approved</em> means the
           buyer has confirmed the work but has not yet paid. That approved-but-unpaid amount is the working-capital gap
-          PLEXUS lets you fill with confidence — the buyer's obligation is already on record.
+          PLEXUS lets you fill with confidence — the buyer's obligation is already on record.{' '}
+          {!loading && opportunities.length > 0 && (
+            <span className="font-semibold text-ink">
+              {awaiting > 0 ? `Right now that gap is ${zar(awaiting, false)} across listed plans.` : 'Nothing is approved and unpaid right now.'}
+            </span>
+          )}
         </p>
       </Tile>
 

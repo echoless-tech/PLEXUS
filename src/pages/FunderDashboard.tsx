@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, ShieldAlert, ArrowRight, MapPin, Landmark, Users, RefreshCw } from 'lucide-react';
-import { PageHeader, Tile, Button, Label, Metric, SegmentTabs } from '../components/ui';
+import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
 import { BusinessAvatar, RatingStars, VerificationBadge } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import { useMilestonesFor } from '../hooks/useMilestonesFor';
 import { computeRating } from '../lib/rating';
-import { zar } from '../lib/format';
 import { INDUSTRY_LABELS, type BusinessRating, type PublicProfile } from '../types';
 
 const fieldCls =
@@ -47,7 +46,6 @@ const FunderDashboard: React.FC = () => {
   }, [businesses, opportunities, byContract]);
 
   const seekingUids = useMemo(() => new Set(opportunities.map((c) => c.smeUid)), [opportunities]);
-  const seekingValue = useMemo(() => opportunities.filter((c) => c.status !== 'completed').reduce((s, c) => s + c.totalValue, 0), [opportunities]);
 
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -114,13 +112,6 @@ const FunderDashboard: React.FC = () => {
           </Button>
         }
       />
-
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Metric label="Businesses" value={String(businesses.length)} hint="on the platform" />
-        <Metric label="Looking for funds" value={String(seekingUids.size)} hint="SMEs with listed plans" accent={seekingUids.size > 0} />
-        <Metric label="Listed plans" value={String(opportunities.length)} hint="payment agreements" />
-        <Metric label="Open value" value={zar(seekingValue, false)} hint="not yet completed" />
-      </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <SegmentTabs tabs={['All SMEs', `Looking for funds (${seekingUids.size})`]} value={tab} onChange={setTab} className="[&>button]:whitespace-nowrap" />
