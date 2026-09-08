@@ -158,6 +158,25 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
+      {contracts.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <Label>Recent agreements</Label>
+              <span className="text-[0.75rem] text-muted">
+                {open.length} active · {contracts.length} total{listedForFunding ? ` · ${listedForFunding} listed for funders` : ''}
+              </span>
+            </div>
+            <button onClick={() => navigate('/contracts')} className="text-[0.8125rem] font-medium text-muted hover:text-ink">View all</button>
+          </div>
+          <div className="space-y-2.5">
+            {contracts.slice(0, 5).map((c) => (
+              <ContractRow key={c.id} c={c} onOpen={() => navigate(`/contracts/${c.id}`)} />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label>Needs your action</Label>
@@ -192,25 +211,6 @@ const Dashboard: React.FC = () => {
             {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Load example
           </Button>
         </Tile>
-      )}
-
-      {contracts.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex flex-wrap items-baseline gap-x-2">
-              <Label>Recent agreements</Label>
-              <span className="text-[0.75rem] text-muted">
-                {open.length} active · {contracts.length} total{listedForFunding ? ` · ${listedForFunding} listed for funders` : ''}
-              </span>
-            </div>
-            <button onClick={() => navigate('/contracts')} className="text-[0.8125rem] font-medium text-muted hover:text-ink">View all</button>
-          </div>
-          <div className="space-y-2.5">
-            {contracts.slice(0, 5).map((c) => (
-              <ContractRow key={c.id} c={c} onOpen={() => navigate(`/contracts/${c.id}`)} />
-            ))}
-          </div>
-        </div>
       )}
     </div>
   );
