@@ -5,7 +5,7 @@ import {
   Copy, Loader2, Pencil, ShieldCheck, FileText, Clock, Banknote, Scale, Landmark, Eye,
 } from 'lucide-react';
 import { Tile, Button, GhostButton, Label } from '../components/ui';
-import { ContractStatusPill, MilestoneStatusPill, VerificationBadge, PayShapLogo } from '../components/common';
+import { ContractStatusPill, MilestoneStatusPill, VerificationBadge, PayShapLogo, BusinessAvatar } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import * as svc from '../services/contracts';
 import { fetchProfile } from '../services/profile';
@@ -223,23 +223,33 @@ const ContractDetail: React.FC = () => {
       <div className="grid gap-4 md:grid-cols-3">
         <Tile className="gap-2">
           <Label>Supplier (gets paid)</Label>
-          <p className="truncate text-[0.9375rem] font-semibold text-ink">{c.smeName}</p>
-          {isSme ? <VerificationBadge status={profile?.verificationStatus || 'unverified'} /> : counterparty && <VerificationBadge status={counterparty.verificationStatus} />}
+          <div className="flex items-center gap-2.5">
+            <BusinessAvatar name={c.smeName} logoDataUrl={isSme ? profile?.logoDataUrl : counterparty?.logoDataUrl} size={36} />
+            <div className="min-w-0">
+              <p className="truncate text-[0.9375rem] font-semibold text-ink">{c.smeName}</p>
+              {isSme ? <VerificationBadge status={profile?.verificationStatus || 'unverified'} /> : counterparty && <VerificationBadge status={counterparty.verificationStatus} />}
+            </div>
+          </div>
         </Tile>
         <Tile className="gap-2">
           <Label>Buyer (pays)</Label>
-          <p className="truncate text-[0.9375rem] font-semibold text-ink">{c.buyerName || c.buyerEmail}</p>
-          {c.buyerUid ? (
-            isBuyer ? (
-              <VerificationBadge status={profile?.verificationStatus || 'unverified'} />
-            ) : isSme && counterparty ? (
-              <VerificationBadge status={counterparty.verificationStatus} />
-            ) : (
-              <span className="text-[0.75rem] text-faint">Accepted party</span>
-            )
-          ) : (
-            <span className="text-[0.75rem] text-faint">Invited{isFunder ? '' : ` · ${c.buyerEmail}`}</span>
-          )}
+          <div className="flex items-center gap-2.5">
+            <BusinessAvatar name={c.buyerName || c.buyerEmail} logoDataUrl={isBuyer ? profile?.logoDataUrl : isSme ? counterparty?.logoDataUrl : null} size={36} />
+            <div className="min-w-0">
+              <p className="truncate text-[0.9375rem] font-semibold text-ink">{c.buyerName || c.buyerEmail}</p>
+              {c.buyerUid ? (
+                isBuyer ? (
+                  <VerificationBadge status={profile?.verificationStatus || 'unverified'} />
+                ) : isSme && counterparty ? (
+                  <VerificationBadge status={counterparty.verificationStatus} />
+                ) : (
+                  <span className="text-[0.75rem] text-faint">Accepted party</span>
+                )
+              ) : (
+                <span className="text-[0.75rem] text-faint">Invited{isFunder ? '' : ` · ${c.buyerEmail}`}</span>
+              )}
+            </div>
+          </div>
         </Tile>
         <Tile className="gap-2">
           <Label>Paid so far</Label>

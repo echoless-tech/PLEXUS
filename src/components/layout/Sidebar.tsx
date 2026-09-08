@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { cn } from '../../lib/cn';
+import { BusinessAvatar } from '../common';
 
 /** Mobile drawer is always full-label width, independent of the desktop collapse state. */
 const DRAWER_WIDTH_MOBILE = 272;
@@ -108,6 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ width, collapsedWidth }) => {
   const mobileNavOpen = useAppStore((s) => s.mobileNavOpen);
   const setMobileNavOpen = useAppStore((s) => s.setMobileNavOpen);
   const businessName = useAppStore((s) => s.profile?.businessName || 'My business');
+  const logoDataUrl = useAppStore((s) => s.profile?.logoDataUrl || null);
   const verificationStatus = useAppStore((s) => s.profile?.verificationStatus || 'unverified');
   const accountType = useAppStore((s) => s.profile?.accountType);
   const mainNav = accountType === 'funder' ? funderNav : businessNav;
@@ -154,13 +156,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ width, collapsedWidth }) => {
   const open = isDesktop ? desktopOpen : true;
   const closeMobile = () => setMobileNavOpen(false);
 
-  const initials = businessName
-    .split(' ')
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 
   return (
     <>
@@ -246,9 +241,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ width, collapsedWidth }) => {
             )}
             title={!open ? businessName : undefined}
           >
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink text-[0.8125rem] font-bold text-canvas">
-              {initials || 'P'}
-            </span>
+            <BusinessAvatar name={businessName} logoDataUrl={logoDataUrl} size={36} rounded="rounded-full" />
             {open && (
               <div className="min-w-0 flex-1 leading-tight">
                 <p className="truncate text-[0.8125rem] font-semibold text-ink">{businessName}</p>

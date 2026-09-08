@@ -4,7 +4,7 @@ import { PanelLeft, Menu, Moon, Sun, ShieldCheck, Settings, LogOut, MailWarning 
 import { useAppStore } from '../../stores/appStore';
 import { signOut, sendVerificationEmail } from '../../services/auth';
 import { GhostButton } from '../ui';
-import { VerificationBadge } from '../common';
+import { VerificationBadge, BusinessAvatar } from '../common';
 
 export const Header: React.FC = () => {
   const navigate = useNavigate();
@@ -28,13 +28,6 @@ export const Header: React.FC = () => {
   }, []);
 
   const name = profile?.businessName || 'PLEXUS';
-  const initials = name
-    .split(' ')
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 
   const go = (path: string) => {
     setMenuOpen(false);
@@ -87,16 +80,19 @@ export const Header: React.FC = () => {
           <button
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="Account"
-            className="neu-sm grid h-9 w-9 place-items-center rounded-full bg-ink text-[0.75rem] font-bold text-canvas"
+            className="neu-sm grid h-9 w-9 place-items-center overflow-hidden rounded-full"
           >
-            {initials || 'P'}
+            <BusinessAvatar name={name} logoDataUrl={profile?.logoDataUrl} size={36} rounded="rounded-full" />
           </button>
 
           {menuOpen && (
             <div className="glass-strong animate-rise absolute right-0 top-12 z-30 w-64 overflow-hidden rounded-[18px]">
-              <div className="border-b border-hairline px-4 py-3">
-                <p className="truncate text-[0.875rem] font-semibold text-ink">{name}</p>
-                <p className="truncate text-[0.75rem] text-muted">{user?.email}</p>
+              <div className="flex items-center gap-3 border-b border-hairline px-4 py-3">
+                <BusinessAvatar name={name} logoDataUrl={profile?.logoDataUrl} size={36} rounded="rounded-full" />
+                <div className="min-w-0">
+                  <p className="truncate text-[0.875rem] font-semibold text-ink">{name}</p>
+                  <p className="truncate text-[0.75rem] text-muted">{user?.email}</p>
+                </div>
               </div>
               <div className="p-1.5">
                 <MenuItem icon={ShieldCheck} label="Verification" onClick={() => go('/verification')} />
