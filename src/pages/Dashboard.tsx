@@ -121,7 +121,6 @@ const Dashboard: React.FC = () => {
       <PageHeader
         eyebrow="Overview"
         title={`Welcome, ${profile?.businessName || 'there'}`}
-        subtitle="Get paid as the work progresses — not months after it's done."
         actions={
           <Button variant="accent" onClick={() => navigate('/contracts/new')}>
             <FilePlus2 className="h-4 w-4" /> New agreement

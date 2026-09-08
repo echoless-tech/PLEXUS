@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, MapPin, Mail, Users, Landmark } from 'lucide-react';
+import { Search, MapPin, Mail, Users } from 'lucide-react';
 import { PageHeader, Tile, Label } from '../components/ui';
 import { BusinessAvatar, VerificationBadge } from '../components/common';
 import { useAppStore } from '../stores/appStore';
@@ -51,11 +51,7 @@ const Connect: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader
-        eyebrow="Connect"
-        title="Businesses on PLEXUS"
-        subtitle="Find suppliers to buy from, buyers to supply, or partners to collaborate with. Then agree a payment plan in a few taps."
-      />
+      <PageHeader eyebrow="Connect" title="Businesses on PLEXUS" />
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <label className="relative flex-1">
@@ -71,15 +67,6 @@ const Connect: React.FC = () => {
           ))}
         </select>
       </div>
-
-      <Tile className="flex-row items-start gap-3 bg-surface-inset/60">
-        <Landmark className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-        <p className="text-[0.8125rem] text-muted">
-          <span className="font-semibold text-ink">Work with someone here?</span> Create a new agreement and enter their
-          contact email as the buyer. They accept in PLEXUS and every stage is tracked for both of you — and it counts toward
-          both your ratings.
-        </p>
-      </Tile>
 
       <div className="flex items-center justify-between">
         <Label>{list.length} business{list.length === 1 ? '' : 'es'}</Label>

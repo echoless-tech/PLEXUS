@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, MapPin, Mail, Landmark, ShieldCheck, Copy, ArrowRight, Lock } from 'lucide-react';
+import { ArrowLeft, MapPin, Mail, Landmark, Copy, ArrowRight, Lock } from 'lucide-react';
 import { Tile, Button, Label, StatRow } from '../components/ui';
 import { BusinessAvatar, RatingStars, VerificationBadge, ContractStatusPill } from '../components/common';
 import { useAppStore } from '../stores/appStore';
@@ -23,7 +23,6 @@ const FunderSmeDetail: React.FC = () => {
   const { uid = '' } = useParams();
   const navigate = useNavigate();
   const showToast = useAppStore((s) => s.showToast);
-  const me = useAppStore((s) => s.profile);
 
   const [sme, setSme] = useState<PublicProfile | null>(null);
   const [plans, setPlans] = useState<ContractView[]>([]);
@@ -109,35 +108,22 @@ const FunderSmeDetail: React.FC = () => {
       </div>
 
       {/* ── About ─────────────────────────────────────────────────── */}
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <Tile className="gap-2">
-          <Label>About</Label>
-          <p className="whitespace-pre-wrap text-[0.875rem] leading-relaxed text-muted">{sme.description || 'This business has not written a description yet.'}</p>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[0.8125rem] text-muted">
-            {sme.location && (
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="h-3.5 w-3.5" /> {sme.location}
-              </span>
-            )}
-            {sme.publicEmail && (
-              <span className="inline-flex items-center gap-1">
-                <Mail className="h-3.5 w-3.5" /> {sme.publicEmail}
-              </span>
-            )}
-          </div>
-        </Tile>
-        <Tile className="gap-2">
-          <Label>How this rating is built</Label>
-          <p className="text-[0.8125rem] leading-relaxed text-muted">
-            40% stages paid · 25% agreements completed vs cancelled · 20% stages approved by the buyer first time · 15%
-            dispute-free. Only agreements {sme.businessName} has listed for funders are counted, and every input is a
-            buyer-confirmed, server-timestamped event.
-          </p>
-          <p className="flex items-center gap-1.5 text-[0.75rem] text-faint">
-            <ShieldCheck className="h-3.5 w-3.5" /> Viewing as {me?.businessName}. Read-only.
-          </p>
-        </Tile>
-      </div>
+      <Tile className="gap-2">
+        <Label>About</Label>
+        <p className="whitespace-pre-wrap text-[0.875rem] leading-relaxed text-muted">{sme.description || 'This business has not written a description yet.'}</p>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[0.8125rem] text-muted">
+          {sme.location && (
+            <span className="inline-flex items-center gap-1">
+              <MapPin className="h-3.5 w-3.5" /> {sme.location}
+            </span>
+          )}
+          {sme.publicEmail && (
+            <span className="inline-flex items-center gap-1">
+              <Mail className="h-3.5 w-3.5" /> {sme.publicEmail}
+            </span>
+          )}
+        </div>
+      </Tile>
 
       {/* ── Statistics (from listed agreements only) ───────────────── */}
       <StatRow

@@ -214,7 +214,6 @@ const NewContract: React.FC = () => {
       <PageHeader
         eyebrow="Agreements"
         title={existing ? 'Edit draft agreement' : 'New payment agreement'}
-        subtitle="Agree the value, the stages and the proof required — before any work starts."
         actions={
           <Button variant="soft" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4" /> Back

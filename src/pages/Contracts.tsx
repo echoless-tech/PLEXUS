@@ -36,7 +36,6 @@ const Contracts: React.FC = () => {
       <PageHeader
         eyebrow="Agreements"
         title="Payment agreements"
-        subtitle="Every agreement you supply on, pay on, or have been invited to."
         actions={
           <Button variant="accent" onClick={() => navigate('/contracts/new')}>
             <FilePlus2 className="h-4 w-4" /> New agreement

@@ -95,11 +95,6 @@ const Verification: React.FC = () => {
       <PageHeader
         eyebrow="Trust"
         title={isFunder ? 'Funder verification' : 'Business verification'}
-        subtitle={
-          isFunder
-            ? 'Funders must verify before they can view SMEs or listed payment plans. SMEs see your verification status.'
-            : 'Both parties to a payment agreement must verify who they are. Buyers and funders see your verification status.'
-        }
         actions={<VerificationBadge status={status} />}
       />
 

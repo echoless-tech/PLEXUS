@@ -61,14 +61,10 @@ const Statistics: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader
-        eyebrow="Statistics"
-        title="Your performance"
-        subtitle="Computed only from buyer-confirmed stage approvals and payments — nothing here is self-reported, which is why funders can trust it."
-      />
+      <PageHeader eyebrow="Statistics" title="Your performance" />
 
       {/* ── Rating card ──────────────────────────────────────────── */}
-      <Tile className="gap-4 sm:flex-row sm:items-center">
+      <Tile className="gap-4">
         <div className="flex items-center gap-4">
           <span className="grid h-16 w-16 shrink-0 place-items-center rounded-3xl bg-ink text-canvas">
             <span className="tnum text-[1.5rem] font-bold">{rating.confidence === 'none' ? '—' : rating.score.toFixed(1)}</span>
@@ -83,10 +79,6 @@ const Statistics: React.FC = () => {
             <div className="mt-1.5">{profile && <VerificationBadge status={profile.verificationStatus} />}</div>
           </div>
         </div>
-        <p className="text-[0.8125rem] leading-relaxed text-muted sm:ml-auto sm:max-w-xs">
-          Score = 40% stages paid · 25% agreements completed vs cancelled · 20% approved first time · 15% dispute-free.
-          Confidence grows with every paid stage.
-        </p>
       </Tile>
 
       <StatRow

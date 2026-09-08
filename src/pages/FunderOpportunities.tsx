@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Landmark, ArrowRight, ShieldAlert, RefreshCw, Inbox } from 'lucide-react';
+import { ArrowRight, ShieldAlert, RefreshCw, Inbox } from 'lucide-react';
 import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
 import { BusinessAvatar, ContractStatusPill } from '../components/common';
 import { useAppStore } from '../stores/appStore';
@@ -29,7 +29,7 @@ const FunderOpportunities: React.FC = () => {
 
   const [tab, setTab] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const { byContract, all, loading } = useMilestonesFor(opportunities);
+  const { byContract, loading } = useMilestonesFor(opportunities);
 
   const verified = Boolean(profile && profile.verificationStatus !== 'unverified');
   useEffect(() => {
@@ -44,9 +44,6 @@ const FunderOpportunities: React.FC = () => {
       .filter((c) => !statuses || statuses.includes(c.status))
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   }, [opportunities, tab]);
-
-  // The one number a funder acts on: buyer-approved stages not yet paid.
-  const awaiting = useMemo(() => summarise(all).awaitingPayment, [all]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -76,27 +73,12 @@ const FunderOpportunities: React.FC = () => {
       <PageHeader
         eyebrow="Funder"
         title="Payment plans"
-        subtitle="Agreements SMEs have listed for funding. Open one to follow each stage, approval and payment live."
         actions={
           <Button variant="soft" onClick={refresh} disabled={refreshing}>
             <RefreshCw className={'h-4 w-4 ' + (refreshing ? 'animate-spin' : '')} /> Refresh
           </Button>
         }
       />
-
-      <Tile className="flex-row items-start gap-3 bg-surface-inset/60">
-        <Landmark className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-        <p className="text-[0.8125rem] text-muted">
-          <span className="font-semibold text-ink">Where funding fits.</span> A stage marked <em>approved</em> means the
-          buyer has confirmed the work but has not yet paid. That approved-but-unpaid amount is the working-capital gap
-          PLEXUS lets you fill with confidence — the buyer's obligation is already on record.{' '}
-          {!loading && opportunities.length > 0 && (
-            <span className="font-semibold text-ink">
-              {awaiting > 0 ? `Right now that gap is ${zar(awaiting, false)} across listed plans.` : 'Nothing is approved and unpaid right now.'}
-            </span>
-          )}
-        </p>
-      </Tile>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentTabs tabs={TABS.map((t) => t.label)} value={tab} onChange={setTab} className="[&>button]:whitespace-nowrap" />

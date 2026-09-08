@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ScanLine, Upload, FileText, Trash2, Loader2, Camera, Sparkles, Receipt, Landmark, File } from 'lucide-react';
+import { ScanLine, Upload, FileText, Trash2, Loader2, Camera, Receipt, Landmark, File } from 'lucide-react';
 import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
 import { useAppStore } from '../stores/appStore';
 import { addDocument, removeDocument, type DocumentInput } from '../services/profile';
@@ -121,20 +121,7 @@ const Run: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader
-        eyebrow="Run"
-        title="Business records"
-        subtitle="Scan invoices, receipts and bank statements. They build the performance picture behind your rating and stay private to you."
-      />
-
-      <Tile className="flex-row items-start gap-3 bg-surface-inset/60">
-        <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-        <p className="text-[0.8125rem] text-muted">
-          <span className="font-semibold text-ink">AI review is coming.</span> Every document you add is queued as{' '}
-          <em>pending review</em>. When the analysis layer is switched on it will cross-check these records against
-          your agreements and flag anything that does not add up — so your Statistics can be trusted by funders.
-        </p>
-      </Tile>
+      <PageHeader eyebrow="Run" title="Business records" />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
         {/* ── Capture form ─────────────────────────────────────────── */}

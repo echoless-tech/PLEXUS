@@ -80,7 +80,7 @@ const FunderDashboard: React.FC = () => {
   if (unverified) {
     return (
       <div className="mx-auto max-w-3xl space-y-6">
-        <PageHeader eyebrow="Funder" title={`Welcome, ${profile?.businessName || 'there'}`} subtitle="Fund SMEs against buyer-confirmed payment plans." />
+        <PageHeader eyebrow="Funder" title={`Welcome, ${profile?.businessName || 'there'}`} />
         <Tile accent className="gap-4">
           <div className="flex items-start gap-3">
             <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
@@ -105,7 +105,6 @@ const FunderDashboard: React.FC = () => {
       <PageHeader
         eyebrow="Funder"
         title="SMEs on PLEXUS"
-        subtitle="Ratings come from buyer-confirmed stage approvals and payments on listed agreements — nothing self-reported."
         actions={
           <Button variant="soft" onClick={refresh} disabled={refreshing}>
             <RefreshCw className={'h-4 w-4 ' + (refreshing ? 'animate-spin' : '')} /> Refresh
