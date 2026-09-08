@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, MapPin, Mail, Users, CalendarDays } from 'lucide-react';
+import { Search, MapPin, Mail, Users, CalendarDays, BadgeCheck } from 'lucide-react';
 import { PageHeader, Tile, Label } from '../components/ui';
-import { BusinessAvatar, VerificationBadge, RatingStars } from '../components/common';
+import { BusinessAvatar, RatingStars } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import { ratingFromProfile } from '../lib/rating';
 import { fmtDate } from '../lib/format';
@@ -92,9 +92,18 @@ const Connect: React.FC = () => {
                 <BusinessAvatar name={b.businessName} logoDataUrl={b.logoDataUrl} size={52} rounded="rounded-2xl" className="sm:hidden" />
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <p className="truncate text-[1.0625rem] font-bold text-ink">{b.businessName}</p>
-                    <VerificationBadge status={b.verificationStatus} />
+                    {b.verificationStatus === 'verified' && (
+                      <BadgeCheck
+                        className="h-[18px] w-[18px] shrink-0 text-white"
+                        fill="#1d9bf0"
+                        strokeWidth={2.5}
+                        aria-label="Verified business"
+                      >
+                        <title>Verified business</title>
+                      </BadgeCheck>
+                    )}
                   </div>
 
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.8125rem] text-muted">
