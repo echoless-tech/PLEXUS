@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ScanLine, Upload, FileText, Trash2, Loader2, Camera, Receipt, Landmark, File } from 'lucide-react';
+import { ScanLine, Upload, FileText, Trash2, Loader2, Camera, Receipt, Landmark, File, Check } from 'lucide-react';
 import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
 import DocumentScanner from '../components/common/DocumentScanner';
 import { useAppStore } from '../stores/appStore';
@@ -141,21 +141,34 @@ const Run: React.FC = () => {
         {/* ── Capture form ─────────────────────────────────────────── */}
         <form onSubmit={save} className="space-y-4">
           <Tile className="gap-4">
-            <Label>Add a document</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label>Add a document</Label>
+              <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-accent">
+                {KINDS.find((k) => k.value === input.kind)?.label}
+              </span>
+            </div>
             <div className="grid grid-cols-2 gap-2">
-              {KINDS.map(({ value, label, icon: Icon }) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => set('kind', value)}
-                  className={
-                    'flex items-center gap-2 rounded-2xl px-3 py-2.5 text-left text-[0.8125rem] font-semibold transition-colors ' +
-                    (input.kind === value ? 'bg-ink text-canvas' : 'bg-surface-inset text-muted hover:text-ink')
-                  }
-                >
-                  <Icon className="h-4 w-4 shrink-0" /> {label}
-                </button>
-              ))}
+              {KINDS.map(({ value, label, icon: Icon }) => {
+                const selected = input.kind === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => set('kind', value)}
+                    style={
+                      selected
+                        ? { background: 'var(--accent)', color: 'var(--accent-contrast)' }
+                        : { background: 'var(--surface-inset)', color: 'var(--text-muted)' }
+                    }
+                    className="flex items-center gap-2 rounded-2xl px-3 py-2.5 text-left text-[0.8125rem] font-semibold transition-colors"
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="flex-1 truncate">{label}</span>
+                    {selected && <Check className="h-4 w-4 shrink-0" />}
+                  </button>
+                );
+              })}
             </div>
             <p className="-mt-1 text-[0.75rem] text-faint">{KINDS.find((k) => k.value === input.kind)?.hint}</p>
 
