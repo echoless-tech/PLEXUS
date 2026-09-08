@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, ShieldAlert, ArrowRight, MapPin, Landmark, Users, RefreshCw, CalendarDays, BadgeCheck } from 'lucide-react';
 import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
-import { RatingStars } from '../components/common';
+import { RatingStars, SquareMedia } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import { useMilestonesFor } from '../hooks/useMilestonesFor';
 import { computeRating, displayRating } from '../lib/rating';
@@ -145,14 +145,9 @@ const FunderDashboard: React.FC = () => {
 };
 
 const SmeCard: React.FC<{ b: PublicProfile; rating: BusinessRating | undefined; seeking: boolean; plans: number; onOpen: () => void }> = ({ b, rating, seeking, plans, onOpen }) => {
-  const initials = b.businessName.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
   return (
-    <Tile interactive as="button" onClick={onOpen} className="w-full flex-row items-start gap-4 text-left">
-      {b.logoDataUrl ? (
-        <img src={b.logoDataUrl} alt="" className="h-24 w-24 shrink-0 rounded-2xl bg-surface-inset object-cover sm:h-32 sm:w-32" />
-      ) : (
-        <div className="grid h-24 w-24 shrink-0 place-items-center rounded-2xl bg-ink text-[1.5rem] font-bold text-canvas sm:h-32 sm:w-32">{initials || 'P'}</div>
-      )}
+    <Tile interactive as="button" onClick={onOpen} className="w-full flex-row items-stretch gap-4 text-left">
+      <SquareMedia src={b.logoDataUrl} name={b.businessName} />
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
