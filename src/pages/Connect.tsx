@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, MapPin, Mail, Users, CalendarDays, BadgeCheck } from 'lucide-react';
 import { PageHeader, Tile, Label } from '../components/ui';
-import { BusinessAvatar, RatingStars } from '../components/common';
-import { useAppStore } from '../stores/appStore';
+import { RatingStars } from '../components/common';import { useAppStore } from '../stores/appStore';
 import { ratingFromProfile } from '../lib/rating';
 import { fmtDate } from '../lib/format';
 import { INDUSTRY_LABELS, type Industry, type PublicProfile } from '../types';
@@ -86,10 +85,16 @@ const Connect: React.FC = () => {
         <div className="space-y-2.5">
           {list.map((b) => {
             const rating = ratingFromProfile(b);
+            const initials = b.businessName.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
             return (
-              <Tile key={b.uid} className="flex-row items-start gap-4">
-                <BusinessAvatar name={b.businessName} logoDataUrl={b.logoDataUrl} size={72} rounded="rounded-2xl" className="hidden sm:block" />
-                <BusinessAvatar name={b.businessName} logoDataUrl={b.logoDataUrl} size={52} rounded="rounded-2xl" className="sm:hidden" />
+              <Tile key={b.uid} className="flex-row items-stretch gap-4">
+                <div className="relative w-24 shrink-0 self-stretch overflow-hidden rounded-2xl bg-surface-inset sm:w-32">
+                  {b.logoDataUrl ? (
+                    <img src={b.logoDataUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  ) : (
+                    <div className="grid h-full w-full place-items-center bg-ink text-[1.5rem] font-bold text-canvas">{initials || 'P'}</div>
+                  )}
+                </div>
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
