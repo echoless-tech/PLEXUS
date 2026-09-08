@@ -198,9 +198,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ width, collapsedWidth }) => {
           {open && (
             <div className="flex flex-col leading-none">
               <span className="text-[1.25rem] font-bold tracking-[-0.02em] text-ink">PLEXUS</span>
-              <span className="mt-1 text-[0.625rem] font-semibold uppercase tracking-[var(--tracking-label)] text-faint">
-                {accountType === 'funder' ? 'Funder workspace' : 'Progressive payments'}
-              </span>
+              {accountType === 'funder' && (
+                <span className="mt-1 text-[0.625rem] font-semibold uppercase tracking-[var(--tracking-label)] text-faint">
+                  Funder workspace
+                </span>
+              )}
             </div>
           )}
           {/* Close button — mobile only */}
