@@ -190,9 +190,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ width, collapsedWidth }) => {
       >
         {/* Wordmark */}
         <div className={cn('flex items-center gap-2.5 px-5 pb-6 pt-7', !open && 'justify-center px-0')}>
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[12px] bg-ink text-[1.05rem] font-bold text-canvas">
-            P
-          </div>
+          <img
+            src={`${import.meta.env.BASE_URL}brandmark.png`}
+            alt="PLEXUS"
+            className="h-9 w-9 shrink-0 object-contain"
+          />
           {open && (
             <div className="flex flex-col leading-none">
               <span className="text-[1.25rem] font-bold tracking-[-0.02em] text-ink">PLEXUS</span>
