@@ -114,23 +114,26 @@ const Analytics: React.FC = () => {
       </Tile>
 
       {/* ── Agreement performance (buyer-confirmed) ───────────────── */}
-      <StatRow
-        stats={[
-          { label: 'Stages paid', value: `${rating.milestonesPaid} / ${rating.milestonesTotal}`, hint: 'on live agreements' },
-          {
-            label: 'Received',
-            value: zar(rating.valuePaid, false),
-            hint: money.awaitingPayment > 0 ? `${zar(money.awaitingPayment, false)} approved, awaiting payment` : `of ${zar(rating.valueContracted, false)} contracted`,
-            accent: money.awaitingPayment > 0,
-          },
-          {
-            label: 'Approved first time',
-            value: pct(rating.firstTimeApprovalRate),
-            hint: `${rating.rejectionsReceived} stage${rating.rejectionsReceived === 1 ? '' : 's'} returned`,
-          },
-          { label: 'Disputes', value: String(rating.disputesRaised), hint: rating.disputesRaised === 0 ? 'clean record' : 'raised on your agreements' },
-        ]}
-      />
+      <div className="space-y-3">
+        <Label>Agreement performance</Label>
+        <StatRow
+          stats={[
+            { label: 'Stages paid', value: `${rating.milestonesPaid} / ${rating.milestonesTotal}`, hint: 'on live agreements' },
+            {
+              label: 'Received',
+              value: zar(rating.valuePaid, false),
+              hint: money.awaitingPayment > 0 ? `${zar(money.awaitingPayment, false)} approved, awaiting payment` : `of ${zar(rating.valueContracted, false)} contracted`,
+              accent: money.awaitingPayment > 0,
+            },
+            {
+              label: 'Approved first time',
+              value: pct(rating.firstTimeApprovalRate),
+              hint: `${rating.rejectionsReceived} stage${rating.rejectionsReceived === 1 ? '' : 's'} returned`,
+            },
+            { label: 'Disputes', value: String(rating.disputesRaised), hint: rating.disputesRaised === 0 ? 'clean record' : 'raised on your agreements' },
+          ]}
+        />
+      </div>
 
       {/* ── Funder visibility ─────────────────────────────────────── */}
       <Tile className="flex-row flex-wrap items-center gap-3 bg-surface-inset/60">
