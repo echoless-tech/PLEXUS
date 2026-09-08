@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, ShieldCheck, Landmark, TrendingUp, TrendingDown } from 'lucide-react';
 import { PageHeader, Tile, Label, StatRow } from '../components/ui';
-import { RatingStars, VerificationBadge, ContractStatusPill } from '../components/common';
+import { RatingStars, VerificationBadge, ContractStatusPill, BusinessAvatar } from '../components/common';
 import { RevenueExpenseChart, NetTrendChart } from '../components/common/Charts';
 import { useAppStore } from '../stores/appStore';
 import { fetchMilestones, summarise } from '../services/contracts';
@@ -72,9 +72,7 @@ const Analytics: React.FC = () => {
       {/* ── Rating card ──────────────────────────────────────────── */}
       <Tile className="gap-4">
         <div className="flex items-center gap-4">
-          <span className="grid h-16 w-16 shrink-0 place-items-center rounded-3xl bg-ink text-canvas">
-            <span className="tnum text-[1.5rem] font-bold">{rating.confidence === 'none' ? '—' : rating.score.toFixed(1)}</span>
-          </span>
+          <BusinessAvatar name={profile?.businessName || 'P'} logoDataUrl={profile?.logoDataUrl} size={64} rounded="rounded-2xl" />
           <div>
             <p className="text-[1.0625rem] font-bold text-ink">{profile?.businessName}</p>
             <RatingStars rating={rating} size={16} />
