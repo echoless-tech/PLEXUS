@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, ShieldAlert, ArrowRight, MapPin, Landmark, Users, RefreshCw, CalendarDays, BadgeCheck } from 'lucide-react';
+import { Search, ShieldAlert, ArrowRight, MapPin, Landmark, Users, RefreshCw, CalendarDays, BadgeCheck, Check } from 'lucide-react';
 import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
 import { RatingStars, SquareMedia } from '../components/common';
 import { useAppStore } from '../stores/appStore';
@@ -14,17 +14,21 @@ const fieldCls =
 
 /**
  * Funder home — every business on PLEXUS with logo, verification and a rating
- * derived from the payment plans they have listed for funders. Firestore only
- * lets a verified funder read listed (seekingFunding) agreements, so ratings
- * here are exactly as trustworthy as the underlying buyer-confirmed data.
+ * derived from the live agreements of businesses that are open to funding.
+ * Firestore only lets a verified funder read agreements of businesses whose
+ * profile says `seekingFunding`, so ratings here are exactly as trustworthy as
+ * the underlying buyer-confirmed data. Funding a plan is an explicit choice
+ * made on the SME page — never inferred from what the SME creates.
  */
 const FunderDashboard: React.FC = () => {
   const navigate = useNavigate();
   const profile = useAppStore((s) => s.profile);
   const businesses = useAppStore((s) => s.businesses);
   const opportunities = useAppStore((s) => s.opportunities);
+  const fundings = useAppStore((s) => s.fundings);
   const loadBusinesses = useAppStore((s) => s.loadBusinesses);
   const loadOpportunities = useAppStore((s) => s.loadOpportunities);
+  const loadFundings = useAppStore((s) => s.loadFundings);
 
   const [q, setQ] = useState('');
   const [tab, setTab] = useState(0);
@@ -32,8 +36,8 @@ const FunderDashboard: React.FC = () => {
 
   const verified = Boolean(profile && profile.verificationStatus !== 'unverified');
   useEffect(() => {
-    if (verified) Promise.all([loadBusinesses(), loadOpportunities()]).catch(() => undefined);
-  }, [verified, loadBusinesses, loadOpportunities]);
+    if (verified) loadBusinesses().then(() => Promise.all([loadOpportunities(), loadFundings()])).catch(() => undefined);
+  }, [verified, loadBusinesses, loadOpportunities, loadFundings]);
 
   const { byContract, loading } = useMilestonesFor(opportunities);
 
@@ -47,12 +51,24 @@ const FunderDashboard: React.FC = () => {
     return out;
   }, [businesses, opportunities, byContract]);
 
-  const seekingUids = useMemo(() => new Set(opportunities.map((c) => c.smeUid)), [opportunities]);
+  const seekingUids = useMemo(() => new Set(businesses.filter((b) => b.seekingFunding).map((b) => b.uid)), [businesses]);
+  // Plans I fund (accepted) or have offered on, per SME — my explicit choices only.
+  const myFundingBySme = useMemo(() => {
+    const out: Record<string, { funding: number; offered: number }> = {};
+    for (const f of fundings) {
+      if (f.status !== 'accepted' && f.status !== 'offered') continue;
+      const e = (out[f.smeUid] ||= { funding: 0, offered: 0 });
+      if (f.status === 'accepted') e.funding += 1;
+      else e.offered += 1;
+    }
+    return out;
+  }, [fundings]);
+  const fundedUids = useMemo(() => new Set(Object.keys(myFundingBySme)), [myFundingBySme]);
 
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return businesses
-      .filter((b) => tab === 0 || seekingUids.has(b.uid))
+      .filter((b) => tab === 0 || (tab === 1 ? seekingUids.has(b.uid) : fundedUids.has(b.uid)))
       .filter(
         (b) =>
           !needle ||
@@ -61,6 +77,9 @@ const FunderDashboard: React.FC = () => {
           (b.industry ? INDUSTRY_LABELS[b.industry].toLowerCase().includes(needle) : false),
       )
       .sort((a, b) => {
+        const fa = fundedUids.has(a.uid) ? 1 : 0;
+        const fb = fundedUids.has(b.uid) ? 1 : 0;
+        if (fa !== fb) return fb - fa;
         const sa = seekingUids.has(a.uid) ? 1 : 0;
         const sb = seekingUids.has(b.uid) ? 1 : 0;
         if (sa !== sb) return sb - sa;
@@ -69,12 +88,16 @@ const FunderDashboard: React.FC = () => {
         if (ra !== rb) return rb - ra;
         return a.businessName.localeCompare(b.businessName);
       });
-  }, [businesses, tab, q, seekingUids, ratings]);
+  }, [businesses, tab, q, seekingUids, fundedUids, ratings]);
 
   const refresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadBusinesses(), loadOpportunities()]);
-    setRefreshing(false);
+    try {
+      await loadBusinesses();
+      await Promise.all([loadOpportunities(), loadFundings()]);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const unverified = !profile || profile.verificationStatus === 'unverified';
@@ -115,7 +138,12 @@ const FunderDashboard: React.FC = () => {
       />
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <SegmentTabs tabs={['All SMEs', `Looking for funds (${seekingUids.size})`]} value={tab} onChange={setTab} className="[&>button]:whitespace-nowrap" />
+        <SegmentTabs
+          tabs={['All SMEs', `Looking for funding (${seekingUids.size})`, `Funding (${fundedUids.size})`]}
+          value={tab}
+          onChange={setTab}
+          className="[&>button]:whitespace-nowrap"
+        />
         <label className="relative flex-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name, industry or location…" className={fieldCls + ' pl-10'} />
@@ -130,13 +158,29 @@ const FunderDashboard: React.FC = () => {
       {list.length === 0 ? (
         <Tile className="items-center gap-2 py-12 text-center">
           <Users className="h-8 w-8 text-faint" />
-          <p className="text-[0.9375rem] font-semibold text-ink">{tab === 1 ? 'No SMEs are looking for funds right now' : 'No businesses match'}</p>
-          <p className="text-[0.8125rem] text-muted">{tab === 1 ? 'Check back soon — SMEs list plans as buyers accept them.' : 'Try a different search.'}</p>
+          <p className="text-[0.9375rem] font-semibold text-ink">
+            {tab === 1 ? 'No SMEs are looking for funding right now' : tab === 2 ? 'You are not funding any plans yet' : 'No businesses match'}
+          </p>
+          <p className="text-[0.8125rem] text-muted">
+            {tab === 1
+              ? 'Check back soon — businesses switch this on from their Dashboard.'
+              : tab === 2
+                ? 'Open a business that is looking for funding and choose the payment plans you want to back.'
+                : 'Try a different search.'}
+          </p>
         </Tile>
       ) : (
         <div className="space-y-2.5">
           {list.map((b) => (
-            <SmeCard key={b.uid} b={b} rating={ratings[b.uid]} seeking={seekingUids.has(b.uid)} plans={opportunities.filter((c) => c.smeUid === b.uid).length} onOpen={() => navigate(`/funder/sme/${b.uid}`)} />
+            <SmeCard
+              key={b.uid}
+              b={b}
+              rating={ratings[b.uid]}
+              seeking={seekingUids.has(b.uid)}
+              plans={opportunities.filter((c) => c.smeUid === b.uid && (c.status === 'proposed' || c.status === 'active')).length}
+              mine={myFundingBySme[b.uid]}
+              onOpen={() => navigate(`/funder/sme/${b.uid}`)}
+            />
           ))}
         </div>
       )}
@@ -144,7 +188,14 @@ const FunderDashboard: React.FC = () => {
   );
 };
 
-const SmeCard: React.FC<{ b: PublicProfile; rating: BusinessRating | undefined; seeking: boolean; plans: number; onOpen: () => void }> = ({ b, rating, seeking, plans, onOpen }) => {
+const SmeCard: React.FC<{
+  b: PublicProfile;
+  rating: BusinessRating | undefined;
+  seeking: boolean;
+  plans: number;
+  mine: { funding: number; offered: number } | undefined;
+  onOpen: () => void;
+}> = ({ b, rating, seeking, plans, mine, onOpen }) => {
   return (
     <Tile interactive as="button" onClick={onOpen} className="w-full flex-row items-stretch gap-4 text-left">
       <SquareMedia src={b.logoDataUrl} name={b.businessName} />
@@ -159,7 +210,15 @@ const SmeCard: React.FC<{ b: PublicProfile; rating: BusinessRating | undefined; 
           )}
           {seeking && (
             <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-accent-contrast">
-              <Landmark className="h-3 w-3" /> Looking for funds · {plans}
+              <Landmark className="h-3 w-3" /> Looking for funding{plans ? ` · ${plans} live plan${plans === 1 ? '' : 's'}` : ''}
+            </span>
+          )}
+          {mine && (mine.funding > 0 || mine.offered > 0) && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-positive/15 px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-positive">
+              <Check className="h-3 w-3" />
+              {mine.funding > 0 ? `Funding ${mine.funding} plan${mine.funding === 1 ? '' : 's'}` : ''}
+              {mine.funding > 0 && mine.offered > 0 ? ' · ' : ''}
+              {mine.offered > 0 ? `${mine.offered} offer${mine.offered === 1 ? '' : 's'} pending` : ''}
             </span>
           )}
         </div>

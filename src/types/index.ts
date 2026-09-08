@@ -76,9 +76,9 @@ export interface Contract {
   expectedDelivery: string;
   disputeRules: string;
   /**
-   * SME opted to list this agreement's payment plan for funders. Funders can
-   * read the header, milestones and events of listed agreements — never the
-   * private payment details.
+   * Legacy per-agreement listing flag (kept for schema compatibility; no UI).
+   * Funder visibility is now governed by the SME profile's `seekingFunding`
+   * and funders choose specific plans via `fundings`.
    */
   seekingFunding: boolean;
   status: ContractStatus;
@@ -225,6 +225,13 @@ export interface PublicProfile {
   publicEmail: string;
   createdAt: Date;
   /**
+   * Business-level switch: "we are looking for funding". While true, verified
+   * funders can browse this business's live agreements and choose which
+   * payment plans to fund. Nothing is funded until a funder explicitly
+   * selects a plan and the business accepts.
+   */
+  seekingFunding: boolean;
+  /**
    * Denormalised public rating snapshot so it can be shown in discovery lists
    * (Connect) where the viewer cannot read the underlying agreements. The
    * authoritative rating is still computed live from rule-enforced data on the
@@ -236,6 +243,33 @@ export interface PublicProfile {
 }
 
 export type DocumentKind = 'invoice' | 'receipt' | 'bank_statement' | 'other';
+
+/**
+ * fundings/{contractId}_{funderUid} — a funder's explicit choice to fund one
+ * payment plan. One per funder per agreement (enforced by the doc id). A
+ * business creating new agreements never creates fundings: the funder must
+ * select each plan, and the business must accept.
+ *
+ *   offered   → funder selected the plan; awaiting the business
+ *   accepted  → business accepted the funder for this plan
+ *   declined  → business declined
+ *   withdrawn → funder withdrew before a response
+ */
+export type FundingStatus = 'offered' | 'accepted' | 'declined' | 'withdrawn';
+
+export interface Funding {
+  id: string;
+  contractId: string;
+  contractTitle: string;
+  smeUid: string;
+  funderUid: string;
+  funderName: string;
+  note: string;
+  status: FundingStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  respondedAt: Date | null;
+}
 
 /** pending_review → AI analysis not yet run (implemented later). */
 export type DocumentAnalysisStatus = 'pending_review' | 'analysed' | 'flagged';

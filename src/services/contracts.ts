@@ -164,7 +164,7 @@ export interface ContractInput {
   paymentInstructions: PaymentInstructions;
   disputeRules: string;
   /** List this agreement's payment plan for funders. */
-  seekingFunding: boolean;
+  seekingFunding?: boolean;
   milestones: MilestoneInput[];
 }
 
@@ -446,23 +446,6 @@ export async function completeContract(c: Contract): Promise<void> {
   await batch.commit();
 }
 
-/** SME lists / unlists the agreement's payment plan for funders. */
-export async function setSeekingFunding(c: Contract, seeking: boolean): Promise<void> {
-  if (c.seekingFunding === seeking) return;
-  const batch = writeBatch(db);
-  batch.set(contractRef(c.id), headerWrite(c, { seekingFunding: seeking }));
-  eventDoc(
-    batch,
-    c.id,
-    seeking ? 'contract_listed_for_funding' : 'contract_unlisted_for_funding',
-    'sme',
-    seeking
-      ? 'Supplier listed this payment plan for funders to view.'
-      : 'Supplier removed this payment plan from the funding list.',
-  );
-  await batch.commit();
-}
-
 /** Participant-only settlement details. Returns null when not permitted (funders). */
 export async function fetchPaymentDetails(cid: string): Promise<ContractPaymentDetails | null> {
   try {
@@ -655,30 +638,20 @@ export async function fetchContract(cid: string): Promise<ContractView | null> {
 }
 
 /**
- * Funder view: every agreement listed for funding that is live. The rules
- * only permit this query for funder accounts with submitted verification,
- * and only return rows with seekingFunding == true and a non-draft status.
+ * Funder view: the live agreements of every business that is currently open to
+ * funding. The rules resolve funder access per SME (the SME's profile flag),
+ * so this runs one constrained query per business rather than a global one.
  */
-export async function fetchFundingOpportunities(): Promise<ContractView[]> {
-  const col = collection(db, 'contracts');
-  const snap = await getDocs(
-    query(col, where('seekingFunding', '==', true), where('status', 'in', ['proposed', 'active', 'completed'])),
-  );
-  return snap.docs
-    .map((d) => toView(mapContract(d.id, d.data())))
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+export async function fetchFundingOpportunities(smeUids: string[]): Promise<ContractView[]> {
+  const lists = await Promise.all(smeUids.map((uid) => fetchSmeFundingContracts(uid).catch(() => [] as ContractView[])));
+  return lists.flat().sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 }
 
-/** Funder view of one SME: its listed agreements only. */
+/** Funder view of one SME: its live agreements (allowed only while the SME is open to funding). */
 export async function fetchSmeFundingContracts(smeUid: string): Promise<ContractView[]> {
   const col = collection(db, 'contracts');
   const snap = await getDocs(
-    query(
-      col,
-      where('smeUid', '==', smeUid),
-      where('seekingFunding', '==', true),
-      where('status', 'in', ['proposed', 'active', 'completed']),
-    ),
+    query(col, where('smeUid', '==', smeUid), where('status', 'in', ['proposed', 'active', 'completed'])),
   );
   return snap.docs
     .map((d) => toView(mapContract(d.id, d.data())))

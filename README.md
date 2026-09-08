@@ -8,8 +8,8 @@ An SME wins a R40,000 job. Traditionally it completes the whole job, issues one 
 
 Two kinds of account use it:
 
-- **Businesses** (SMEs and their buyers) — create and run progressive payment agreements, keep records of how the business performs (**Run**), find other businesses to work with (**Connect**) and see their own buyer-confirmed rating (**Statistics**). An SME can tick *"we are looking for funds"* on any agreement to list it for funders.
-- **Funders** — browse every business with logo, verification status and rating; filter to those looking for funds; open an SME's detail page (profile, statistics, listed plans) and follow each listed payment plan **read-only**, stage by stage, as the buyer approves and pays. Funders never see bank details and cannot act on an agreement.
+- **Businesses** (SMEs and their buyers) — create and run progressive payment agreements, keep records of how the business performs (**Run**), find other businesses to work with (**Connect**) and see their own buyer-confirmed rating and history (**Analytics**). An SME switches **Look for funding** on once, from the Dashboard, to let verified funders browse its live agreements.
+- **Funders** — browse every business with logo, verification status and rating; filter to those looking for funding; open an SME's page and **choose which payment plans to fund**. Each choice is an offer the SME accepts or declines; funded plans are followed **read-only**, stage by stage, as the buyer approves and pays. Funders never see bank details and cannot act on an agreement. Nothing is ever funded automatically — a business creating new agreements only makes them *available*.
 
 Both account types must submit verification before they can operate. The account type is chosen once at sign-up (or first login) and is write-once on the server.
 
@@ -21,15 +21,16 @@ Both account types must submit verification before they can operate. The account
 |---|---|---|
 | 0 · Choose | Both | Business or Funder. Fixed after choice. |
 | 1 · Verify | Both | Submit a verification summary (last-4 digits only; funders add an FSP/NCR licence number). Everyone sees everyone's status. |
-| 2 · Create the deal | SME | Value, scope, delivery date, payment details (private to the parties), dispute rules, **looking for funds?** |
+| 2 · Create the deal | SME | Value, scope, delivery date, payment details (private to the parties), dispute rules. |
 | 3 · Agree stages | SME | Configurable milestones (templates: 30/30/30/10, 50/50, 40/40/20 — or custom). Must total 100%. |
-| 4 · Propose | SME | Digitally accepts the terms → **terms freeze**. Listed plans become visible to verified funders. |
+| 4 · Propose | SME | Digitally accepts the terms → **terms freeze**. If the business is looking for funding, the plan becomes visible to verified funders. |
 | 5 · Accept | Buyer | Reviews frozen terms, digitally accepts → **terms lock** (server-timestamped). |
 | 6 · Evidence | SME | Uploads proof for a stage (buyer acknowledgement, delivery note, job card, photo, document). |
 | 7 · Approve & pay | Buyer | Approves → payment request with a unique reference. Pays via bank/PayShap and records the reference. |
 | 8 · Repeat / dispute | Both | Continue to close-out. Either party can dispute; payment for that stage pauses until resolved. |
 | 9 · Record | Both | Every action is an append-only, server-timestamped audit event — funders watch the same trail. |
-| ∞ · Run / Statistics | Business | Scan invoices, receipts and bank statements (queued for AI review, coming later). Rating = 40% stages paid · 25% completed vs cancelled · 20% approved first time · 15% dispute-free. |
+| 10 · Fund | Funder → SME | Funder selects specific plans of a business that is looking for funding → `fundings/{planId}_{funderUid}` offer. SME accepts or declines; funder may withdraw an open offer. One funder per plan. |
+| ∞ · Run / Analytics | Business | Scan invoices, receipts and bank statements (queued for AI review, coming later). Rating = 40% stages paid · 25% completed vs cancelled · 20% approved first time · 15% dispute-free. |
 
 ---
 
@@ -38,10 +39,11 @@ Both account types must submit verification before they can operate. The account
 The client is untrusted. Everything below is enforced by **Firestore Security Rules** on the server:
 
 - Participants only. Invited buyers see a proposal only once it is `proposed`; drafts are private to the SME.
-- **Funders** are read-only observers: they can read an agreement only if the SME listed it (`seekingFunding`) *and* it is not a draft/cancelled *and* the funder has submitted verification. They can never read `contracts/{id}/private/payment` (settlement details) and every write they attempt is denied.
-- `accountType` is write-once (`null → business|funder`, never changed). Only businesses can create agreements or Run documents.
-- Creating or accepting an agreement requires **submitted verification**. `verified` can only be set server-side.
-- Only the SME edits terms, only while `draft`. `proposed` terms are frozen. `active` terms are **immutable** — the only later header change allowed is toggling the funding listing.
+- **Funders** are read-only observers of agreements: they can read one only if the SME's profile says **looking for funding** (`profiles/{uid}.seekingFunding`) *and* it is proposed/active/completed *and* the funder has submitted verification. They can never read `contracts/{id}/private/payment` (settlement details) and every write they attempt on an agreement is denied.
+- **Funding is opt-in on both sides, per plan.** A funder's only write is a `fundings/{contractId}_{funderUid}` document: the id must encode both parties, `funderName` must match the caller's own profile, the plan must be live and belong to a business that is looking for funding, and the record is born `offered` with server timestamps. The SME may flip it to `accepted`/`declined`; the funder may `withdraw` (and re-offer later); nothing else may change and nothing may be deleted.
+- `accountType` is write-once (`null → business|funder`, never changed). Only businesses can create agreements or Run documents; only businesses may set `seekingFunding`.
+- Creating or accepting an agreement requires **submitted verification**. `verified` can only be set server-side, as can the rating snapshot (`ratingScore`/`ratingCount`).
+- Only the SME edits terms, only while `draft`. `proposed` terms are frozen. `active` terms are **immutable**.
 - Milestones are individual documents with a **role-gated state machine**: SME → evidence; Buyer → approve / return / pay; either → dispute; buyer-only → approve a disputed stage for payment.
 - **Audit events cannot be forged.** Each event type is accepted only alongside the exact state transition it describes (checked against pre- and post-batch state) and only with the caller's real role.
 - Every timestamp that matters must equal `request.time`. Audit events are create-only. Agreements are cancelled, never deleted. Run documents can be added and deleted but never edited, and always enter `pending_review`.
@@ -78,24 +80,26 @@ src/
     profile.ts                 Public profile (+ logo, industry, location), account type,
                                private verification summary, Run documents, directory
     contracts.ts               Every mutation = one atomic batch (state + audit event);
-                               private/payment sub-doc; funder queries; funding toggle
+                               private/payment sub-doc; per-business funder queries
+    funding.ts                 Per-plan funding offers: offer / withdraw / accept / decline
   lib/rating.ts                Rating derived from rule-enforced agreement data
+  lib/analytics.ts             Deterministic 12-month business history for the charts
   lib/files.ts                 Client-side image downscaling for logos / scans
   hooks/useMilestonesFor.ts    Milestones for a set of agreements (funder views)
-  stores/appStore.ts           Auth, identity, per-account-type data, nav, theme, toasts
+  stores/appStore.ts           Auth, identity, per-account-type data, fundings, nav, theme, toasts
   pages/
     ChooseAccountType.tsx      One-time Business / Funder choice
-    Dashboard.tsx              Business: "Needs your action", money position, Run/Connect/Statistics
+    Dashboard.tsx              Business: "Needs your action" (incl. funding offers), Look-for-funding switch
     Run.tsx                    Scan / upload invoices, receipts, bank statements (pending AI review)
     Connect.tsx                Directory of businesses to work with
-    Statistics.tsx             Own rating, performance metrics, per-agreement breakdown
+    Analytics.tsx              Own rating, history charts, performance metrics, per-agreement breakdown
     Contracts.tsx              Agreement list (all / mine / invited / closed)
-    NewContract.tsx            3-step wizard: deal (+ looking for funds) → stages → review & accept
+    NewContract.tsx            3-step wizard: deal → stages → review & accept
     ContractDetail.tsx         Live agreement: stages, evidence, approvals, payment
-                               requests, disputes, audit trail, funding toggle; read-only for funders
-    FunderDashboard.tsx        Funder: SME grid with logos, ratings, "looking for funds" filter
-    FunderSmeDetail.tsx        Funder: SME profile, statistics and listed payment plans
-    FunderOpportunities.tsx    Funder: all listed payment plans with live progress
+                               requests, disputes, audit trail, funding panel; read-only for funders
+    FunderDashboard.tsx        Funder: SME list with logos, ratings, "looking for funding" / "funding" tabs
+    FunderSmeDetail.tsx        Funder: SME profile, statistics, choose which plans to fund
+    FunderOpportunities.tsx    Funder: portfolio — funding / offers sent / available / closed
     Verification.tsx           Business / funder verification (last-4 digits only)
     Settings.tsx / Login.tsx   Profile (logo, industry, about), appearance; sign-up with type
   components/                  Layout shell, badges, avatars, rating stars, UI primitives
@@ -122,7 +126,7 @@ The app points at the shared Firebase project. To use your own:
 
 ### Try the full flow with three accounts
 
-Three demo accounts already exist on the shared project, with a live agreement listed for funding:
+Three demo accounts already exist on the shared project; Ubuntu Textiles is looking for funding and has a live agreement:
 
 | Role | Business | Email | Password |
 |---|---|---|---|
@@ -132,11 +136,11 @@ Three demo accounts already exist on the shared project, with a live agreement l
 
 Or run it from scratch:
 
-1. Sign up as the **SME** (choose *I run a business*), complete *Verification*, create an agreement, tick **looking for funds**, enter the buyer's email, **Accept & send**.
+1. Sign up as the **SME** (choose *I run a business*), complete *Verification*, switch on **Look for funding** on the Dashboard, create an agreement, enter the buyer's email, **Accept & send**.
 2. Sign up as the **Buyer** (also a business) using that exact email, complete *Verification*, open the agreement, **Accept**.
 3. As the SME: **Submit evidence** on stage 1. As the Buyer: **Approve stage**, then **I have paid — record reference**.
-4. Sign up as a **Funder** (choose *I am a funder*), complete *Verification*. The SME now appears under *Looking for funds* with a rating; open it, then open the payment plan — read-only, bank details hidden, audit trail live.
-5. As the SME, scan a document under **Run** and check **Statistics**.
+4. Sign up as a **Funder** (choose *I am a funder*), complete *Verification*. The SME appears under *Looking for funding* with a rating; open it, tick the plan and **Fund selected plans**. Back as the SME, **Accept** the offer from the Dashboard. The funder's *Payment plans → Funding* now shows it — read-only, bank details hidden, audit trail live. Create a second agreement as the SME: it shows for the funder under *Available*, not *Funding*.
+5. As the SME, scan a document under **Run** and check **Analytics**.
 
 ---
 

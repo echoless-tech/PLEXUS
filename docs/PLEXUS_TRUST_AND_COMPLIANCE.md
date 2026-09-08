@@ -108,9 +108,10 @@ These are the repeatable operating procedures that make the documents above real
 
 ### 2.1a Funder access to SME data (data minimisation)
 
-- An SME opts in per agreement ("we are looking for funds"). Nothing is exposed to funders without that flag, and the SME can withdraw it at any time; both actions are audit events.
-- A verified funder sees: the SME's public profile, the agreement header (title, value, schedule, status), milestone states and evidence, and the audit trail. A funder **never** sees settlement/bank details (`contracts/{id}/private/payment`), the SME's verification summary, or the SME's Run documents — the rules deny these reads outright.
-- Ratings shown to funders are computed client-side from rule-enforced, buyer-confirmed states only (no self-reported inputs), so they are exactly as trustworthy as the underlying agreement data.
+- A business opts in once, at profile level ("Look for funding", `profiles/{uid}.seekingFunding`). Nothing is exposed to funders without that switch, and the business can turn it off at any time; existing accepted fundings remain on record but no further agreements are readable.
+- **Funding is a per-plan, two-sided choice.** A verified funder selects specific payment plans; each selection is a `fundings/{contractId}_{funderUid}` record born `offered`. The SME accepts or declines each offer; the funder may withdraw an open offer. A business creating new agreements never changes any funder's position — new plans merely become *available*.
+- A verified funder sees: the SME's public profile, the agreement header (title, value, schedule, status), milestone states and evidence, and the audit trail. A funder **never** sees settlement/bank details (`contracts/{id}/private/payment`), the SME's verification summary, or the SME's Run documents — the rules deny these reads outright. Funder queries must be scoped to one business at a time; an unscoped "all agreements" query is unprovable and denied.
+- Ratings shown to funders are computed client-side from rule-enforced, buyer-confirmed states only (no self-reported inputs), so they are exactly as trustworthy as the underlying agreement data. The persisted rating snapshot (`ratingScore`/`ratingCount`) is server-written only.
 - Any credit a funder extends on the strength of this information is a matter between the funder and the SME; PLEXUS does not price, intermediate or hold funds (see §1.5).
 
 ### 2.2 Agreement formation ("agreement before work starts")
@@ -176,9 +177,11 @@ The client is untrusted. Every invariant below is enforced by Firestore Security
 | Audit events: create-only, actor = caller, claimed role = caller's real role, and each event type is accepted **only alongside the exact state transition it describes** (pre/post-batch check) | `eventRoleMatches()`, `contractEventValid()`, `milestoneEventValid()` |
 | Clients can never set `verificationStatus = 'verified'` | profile & verification update rules |
 | Account type is write-once; only businesses create agreements or Run documents | profile update rule; `accountTypeOf(uid()) == 'business'` |
-| Funders read only agreements that are listed (`seekingFunding`), not draft/cancelled, and only once their own verification is submitted | `funderCanObserve()` in `canReadContract()` |
+| Funders read only agreements of a business whose profile says `seekingFunding`, that are proposed/active/completed, and only once their own verification is submitted | `funderCanObserve()` → `smeOpenToFunding()` in `canReadContract()` |
 | Settlement details live in a private sub-document readable only by the two parties; writable by the SME only while `draft` | `match /private/payment` |
-| The funding listing flag is the only header field an SME may change after proposal, and only while draft/proposed/active | `smeTogglesFunding()` with `affectedKeys().hasOnly(['seekingFunding','updatedAt'])` |
+| `active` agreement headers are immutable; the funding switch lives on the profile and only a business may set it | `validProfileShape()` (`seekingFunding is bool`, funder ⇒ false) |
+| A funding record can only be created by a verified funder, for itself (`id == contractId_funderUid`, `funderName` == own profile name), on a live plan of an open business, born `offered` with server timestamps; SME may only `accept`/`decline` an open offer (with server `respondedAt`), funder may only `withdraw` (or re-offer after withdrawing); no deletes; readable only by the two parties | `match /fundings/{fid}` |
+| The persisted rating snapshot cannot be written by clients | `ratingUnchanged()` on profile update; rating keys forbidden on create |
 | Run documents are owner-only, create/delete but never update, always enter `pending_review` with no analysis note (AI fields reserved for the server) | `profiles/{uid}/documents` rules |
 | Only last-4 digits of ID/account can be stored | regex `^[0-9]{4}$` |
 | Every string, list and map has a hard size cap | `strLen()`, `optStr()`, `dataUrl.size() <= 700000`, logo `<= 200000` |
@@ -227,7 +230,15 @@ Run from the **SME** session and from a brand-new **unverified funder** (18 chec
 - SME denied: approve/pay own milestone; edit a paid amount or the locked total; change account type; self-verify; write a Run document with `analysisStatus = analysed`; edit an existing document; change payment details after lock; forge an audit event with another role or without the matching transition; run the funder listing query.
 - Unverified funder denied: read a listed agreement, run the listing query, list milestones (public profiles remain readable so the directory works).
 
-Every legitimate transition was then re-exercised through the UI under the tightened rules — create, edit draft, propose, withdraw, list/unlist, accept, decline, evidence, withdraw evidence, return, approve, dispute, resolve, pay, auto-complete, cancel — and each produced exactly one audit event.
+Every legitimate transition was then re-exercised through the UI under the tightened rules — create, edit draft, propose, withdraw, accept, decline, evidence, withdraw evidence, return, approve, dispute, resolve, pay, auto-complete, cancel — and each produced exactly one audit event.
+
+**Per-plan funding model** (42 checks across the three roles, all as expected):
+
+- Funder allowed: per-business live-plan query; own fundings query. Funder denied: plans of a business not looking for funding; the unscoped listed-plans query; a cancelled plan; listing all fundings or another party's fundings; a funding with a wrong id, another funder's uid, a forged `funderName`, status `accepted` on create, a cancelled or non-existent plan, a wrong `smeUid`, client-set `createdAt` or an extra field; accepting or renaming its own offer; deleting a funding; flipping a business's `seekingFunding`; setting `seekingFunding` on a funder profile; writing `ratingScore`.
+- SME allowed: fundings on its own agreements. SME denied: listing all fundings or a funder's fundings; creating a funding (as itself or impersonating a funder); withdrawing a funder's offer; accepting without `respondedAt`, with a client `respondedAt`, or while editing another field; self-writing `ratingScore`; a non-boolean `seekingFunding`.
+- Buyer denied: reading or accepting a funding on a plan it pays for; funding queries by either party; querying another business's agreements.
+
+The end-to-end flow was also exercised through the UI: business switches on *Look for funding*; funder selects a plan and sends the offer; business sees the offer under *Needs your action* and accepts; a second business agreement appears for the funder as *Available* only.
 
 ### 3.5 Recommended next controls (not yet implemented)
 

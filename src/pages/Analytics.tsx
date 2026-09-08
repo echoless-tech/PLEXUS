@@ -22,9 +22,12 @@ const Analytics: React.FC = () => {
   const navigate = useNavigate();
   const profile = useAppStore((s) => s.profile);
   const contracts = useAppStore((s) => s.contracts);
+  const fundings = useAppStore((s) => s.fundings);
 
   const asSupplier = useMemo(() => contracts.filter((c) => c.myRole === 'sme'), [contracts]);
   const asBuyerLive = useMemo(() => contracts.filter((c) => c.myRole === 'buyer' && c.status !== 'draft'), [contracts]);
+  const fundedIds = useMemo(() => new Set(fundings.filter((f) => f.status === 'accepted').map((f) => f.contractId)), [fundings]);
+  const openOffers = useMemo(() => fundings.filter((f) => f.status === 'offered').length, [fundings]);
 
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +48,6 @@ const Analytics: React.FC = () => {
 
   const rating = useMemo(() => computeRating(asSupplier, milestones), [asSupplier, milestones]);
   const money = useMemo(() => summarise(milestones), [milestones]);
-  const listed = asSupplier.filter((c) => c.seekingFunding && c.status !== 'draft' && c.status !== 'cancelled');
 
   const history = useMemo(() => generateHistory(profile?.uid || 'plexus'), [profile?.uid]);
   const hist = useMemo(() => summariseHistory(history), [history]);
@@ -135,20 +137,23 @@ const Analytics: React.FC = () => {
         />
       </div>
 
-      {/* ── Funder visibility ─────────────────────────────────────── */}
+      {/* ── Funding status ────────────────────────────────────────── */}
       <Tile className="flex-row flex-wrap items-center gap-3 bg-surface-inset/60">
         <Landmark className="h-5 w-5 shrink-0 text-accent" />
         <div className="min-w-0 flex-1 text-[0.8125rem] text-muted">
           <p className="font-semibold text-ink">
-            {listed.length > 0 ? `${listed.length} payment plan${listed.length === 1 ? '' : 's'} listed for funders` : 'Not listed for funders'}
+            {profile?.seekingFunding ? 'Open to funders' : 'Not looking for funding'}
+            {fundedIds.size > 0 ? ` · ${fundedIds.size} plan${fundedIds.size === 1 ? '' : 's'} funded` : ''}
+            {openOffers > 0 ? ` · ${openOffers} offer${openOffers === 1 ? '' : 's'} awaiting your response` : ''}
           </p>
           <p>
-            Funders see this rating computed from your listed agreements only, plus your public profile. Tick "looking for funds"
-            on an agreement to list it.
+            {profile?.seekingFunding
+              ? 'Funders see this rating and your live agreements, and choose which payment plans to fund. Every choice is an offer you accept or decline.'
+              : 'Turn on "Look for funding" on the Dashboard to let funders browse your agreements and offer to fund specific plans.'}
           </p>
         </div>
-        <button onClick={() => navigate('/contracts')} className="text-[0.8125rem] font-semibold text-accent hover:opacity-80">
-          Manage agreements
+        <button onClick={() => navigate(openOffers > 0 ? '/contracts' : '/')} className="text-[0.8125rem] font-semibold text-accent hover:opacity-80">
+          {openOffers > 0 ? 'Review offers' : 'Funding settings'}
         </button>
       </Tile>
 
@@ -171,7 +176,7 @@ const Analytics: React.FC = () => {
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate text-[0.9375rem] font-semibold text-ink">{c.title}</p>
                     <ContractStatusPill status={c.status} />
-                    {c.seekingFunding && <Landmark className="h-3.5 w-3.5 text-accent" />}
+                    {fundedIds.has(c.id) && <Landmark className="h-3.5 w-3.5 text-accent" aria-label="Funded" />}
                   </div>
                   <p className="text-[0.75rem] text-muted">
                     {c.buyerName || c.buyerEmail} · {fmtDate(c.expectedDelivery)} · {paidStages}/{stages} stages paid

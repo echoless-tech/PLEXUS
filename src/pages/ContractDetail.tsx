@@ -9,9 +9,10 @@ import { ContractStatusPill, MilestoneStatusPill, VerificationBadge, PayShapLogo
 import { useAppStore } from '../stores/appStore';
 import * as svc from '../services/contracts';
 import { fetchProfile } from '../services/profile';
-import type { ContractView, ContractEvent, ContractPaymentDetails, EvidenceType, Milestone, PublicProfile, Role } from '../types';
+import type { ContractView, ContractEvent, ContractPaymentDetails, EvidenceType, Funding, Milestone, PublicProfile, Role } from '../types';
 import { LIMITS } from '../types';
 import { zar, fmtDate, fmtDateTime, paymentReferenceFor } from '../lib/format';
+import { canOffer, offerFunding, withdrawFunding, respondToFunding } from '../services/funding';
 
 const payToLabel = (p: ContractPaymentDetails | null, long = false): string => {
   if (!p) return 'Private to the parties';
@@ -46,6 +47,8 @@ const ContractDetail: React.FC = () => {
   const profile = useAppStore((s) => s.profile);
   const showToast = useAppStore((s) => s.showToast);
   const loadContracts = useAppStore((s) => s.loadContracts);
+  const fundings = useAppStore((s) => s.fundings);
+  const loadFundings = useAppStore((s) => s.loadFundings);
 
   const [contract, setContract] = useState<ContractView | null>(null);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -68,7 +71,7 @@ const ContractDetail: React.FC = () => {
         setReady(true);
       },
       (e) => {
-        setLoadError(e.message.includes('permission') ? 'You are not a party to this agreement, or it is not listed for funders.' : e.message);
+        setLoadError(e.message.includes('permission') ? 'You are not a party to this agreement, or the business is not open to funding.' : e.message);
         setReady(true);
       },
     );
@@ -145,7 +148,8 @@ const ContractDetail: React.FC = () => {
   const isFunder = role === 'funder';
   const progress = c.totalValue ? Math.min(100, Math.round((summary.paid / c.totalValue) * 100)) : 0;
   const backTo = isFunder ? '/funder/plans' : '/contracts';
-  const canToggleListing = isSme && (c.status === 'draft' || c.status === 'proposed' || c.status === 'active');
+  const planFundings = fundings.filter((f) => f.contractId === c.id);
+  const acceptedFunder = planFundings.find((f) => f.status === 'accepted');
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -158,9 +162,9 @@ const ContractDetail: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-[1.5rem] font-bold tracking-[-0.02em] text-ink sm:text-[1.875rem]">{c.title}</h1>
             <ContractStatusPill status={c.status} />
-            {c.seekingFunding && (
+            {acceptedFunder && (
               <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-[0.6875rem] font-semibold text-accent">
-                <Landmark className="h-3 w-3" /> Looking for funds
+                <Landmark className="h-3 w-3" /> Funded · {isFunder ? 'you' : acceptedFunder.funderName}
               </span>
             )}
           </div>
@@ -181,9 +185,9 @@ const ContractDetail: React.FC = () => {
           <div className="text-[0.8125rem] text-muted">
             <p className="font-semibold text-ink">Read-only view</p>
             <p>
-              {c.smeName} listed this payment plan for funders. You can follow every stage, approval and payment as it
-              happens, but only the two parties can act on it. Settlement account details are private to them. Contact{' '}
-              {c.smeName} via their profile to discuss funding.
+              {c.smeName} is open to funding. You can follow every stage, approval and payment as it happens, but only
+              the two parties can act on the agreement, and settlement account details are private to them. Use{' '}
+              <span className="font-semibold text-ink">Fund this plan</span> below to offer funding on this specific plan.
             </p>
           </div>
         </Tile>
@@ -296,34 +300,19 @@ const ContractDetail: React.FC = () => {
         </div>
       )}
 
-      {/* ── Funding listing toggle (SME only; header-only change, terms untouched) ── */}
-      {canToggleListing && (
-        <Tile className="flex-row flex-wrap items-center gap-3">
-          <Landmark className={'h-5 w-5 shrink-0 ' + (c.seekingFunding ? 'text-accent' : 'text-muted')} />
-          <div className="min-w-0 flex-1">
-            <p className="text-[0.875rem] font-semibold text-ink">
-              {c.seekingFunding ? 'Listed for funders' : 'Not listed for funders'}
-            </p>
-            <p className="text-[0.75rem] text-muted">
-              {c.seekingFunding
-                ? 'Verified funders can see this plan, its live progress and your rating. Bank details stay private.'
-                : 'Tick this to appear on the funder marketplace against this payment plan.'}
-            </p>
-          </div>
-          <Button
-            variant={c.seekingFunding ? 'soft' : 'accent'}
-            disabled={busy}
-            onClick={() =>
-              run(
-                c.seekingFunding ? 'Listing removed.' : 'Listed for funders.',
-                () => svc.setSeekingFunding(c, !c.seekingFunding),
-              )
-            }
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Landmark className="h-4 w-4" />}
-            {c.seekingFunding ? 'Remove listing' : 'Look for funds'}
-          </Button>
-        </Tile>
+      {/* ── Funding (SME: offers on this plan · funder: my selection) ── */}
+      {(isSme || isFunder) && c.status !== 'draft' && (
+        <FundingPanel
+          contract={c}
+          role={role}
+          fundings={planFundings}
+          smeOpen={isSme ? profile?.seekingFunding === true : true}
+          funderName={profile?.businessName || 'Funder'}
+          busy={busy}
+          run={run}
+          onChanged={loadFundings}
+          onOpenDashboard={() => navigate('/')}
+        />
       )}
       {c.status === 'cancelled' && (
         <Tile className="gap-1 bg-negative/5">
@@ -425,6 +414,137 @@ const ContractDetail: React.FC = () => {
         />
       )}
     </div>
+  );
+};
+
+// ─── Funding panel ───────────────────────────────────────────────────
+
+const FUNDING_LABEL: Record<Funding['status'], { text: string; cls: string }> = {
+  offered: { text: 'Awaiting your response', cls: 'bg-accent-soft text-accent' },
+  accepted: { text: 'Funding', cls: 'bg-positive/15 text-positive' },
+  declined: { text: 'Declined', cls: 'bg-negative/10 text-negative' },
+  withdrawn: { text: 'Withdrawn', cls: 'bg-surface-inset text-muted' },
+};
+
+/**
+ * SME: every funder who has chosen this plan — accept or decline each.
+ * Funder: my own selection on this plan — fund / withdraw / final state.
+ * Funding is per plan: nothing here carries over to the SME's other agreements.
+ */
+const FundingPanel: React.FC<{
+  contract: ContractView;
+  role: Role;
+  fundings: Funding[];
+  smeOpen: boolean;
+  funderName: string;
+  busy: boolean;
+  run: (label: string, fn: () => Promise<void>) => Promise<boolean>;
+  onChanged: () => Promise<void>;
+  onOpenDashboard: () => void;
+}> = ({ contract: c, role, fundings, smeOpen, funderName, busy, run, onChanged, onOpenDashboard }) => {
+  const live = c.status === 'proposed' || c.status === 'active';
+  const act = (label: string, fn: () => Promise<void>) => run(label, async () => { await fn(); await onChanged(); });
+
+  if (role === 'funder') {
+    const mine = fundings[0];
+    return (
+      <Tile className="flex-row flex-wrap items-center gap-3">
+        <Landmark className={'h-5 w-5 shrink-0 ' + (mine?.status === 'accepted' ? 'text-positive' : 'text-accent')} />
+        <div className="min-w-0 flex-1">
+          {!mine ? (
+            <>
+              <p className="text-[0.875rem] font-semibold text-ink">Fund this plan</p>
+              <p className="text-[0.75rem] text-muted">
+                Offer to fund this payment plan only. {c.smeName} accepts or declines; their other agreements are unaffected.
+              </p>
+            </>
+          ) : mine.status === 'offered' ? (
+            <>
+              <p className="text-[0.875rem] font-semibold text-ink">Offer sent — awaiting {c.smeName}</p>
+              <p className="text-[0.75rem] text-muted">Offered {fmtDateTime(mine.createdAt)}. You can withdraw until they respond.</p>
+            </>
+          ) : mine.status === 'accepted' ? (
+            <>
+              <p className="text-[0.875rem] font-semibold text-positive">You're funding this plan</p>
+              <p className="text-[0.75rem] text-muted">Accepted by {c.smeName} on {fmtDateTime(mine.respondedAt)}.</p>
+            </>
+          ) : mine.status === 'declined' ? (
+            <>
+              <p className="text-[0.875rem] font-semibold text-negative">Declined by {c.smeName}</p>
+              <p className="text-[0.75rem] text-muted">Declined {fmtDateTime(mine.respondedAt)}.</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[0.875rem] font-semibold text-ink">You withdrew your offer</p>
+              <p className="text-[0.75rem] text-muted">Withdrawn {fmtDateTime(mine.updatedAt)}.{live ? ' You can offer again while the plan is live.' : ''}</p>
+            </>
+          )}
+        </div>
+        {canOffer(mine) && live && (
+          <Button variant="accent" disabled={busy} onClick={() => act('Funding offer sent.', async () => { await offerFunding(c, funderName); })}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Landmark className="h-4 w-4" />} {mine ? 'Fund this plan again' : 'Fund this plan'}
+          </Button>
+        )}
+        {mine?.status === 'offered' && (
+          <Button variant="soft" disabled={busy} onClick={() => act('Offer withdrawn.', () => withdrawFunding(mine))}>
+            <Undo2 className="h-4 w-4" /> Withdraw offer
+          </Button>
+        )}
+      </Tile>
+    );
+  }
+
+  // SME view
+  const open = fundings.filter((f) => f.status === 'offered');
+  const others = fundings.filter((f) => f.status !== 'offered');
+  const funder = fundings.find((f) => f.status === 'accepted');
+  return (
+    <Tile className="gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label>Funding</Label>
+        {!smeOpen ? (
+          <button onClick={onOpenDashboard} className="text-[0.75rem] font-semibold text-accent hover:opacity-80">
+            You're not open to funders — turn it on from the Dashboard
+          </button>
+        ) : funder ? (
+          <span className="text-[0.75rem] text-muted">Funded by {funder.funderName}. One funder per plan — other offers can only be declined.</span>
+        ) : (
+          <span className="text-[0.75rem] text-muted">Funders choose plans one at a time; you accept or decline each offer.</span>
+        )}
+      </div>
+      {fundings.length === 0 ? (
+        <p className="text-[0.8125rem] text-muted">No funder has selected this plan yet.</p>
+      ) : (
+        <ul className="divide-y divide-hairline">
+          {[...open, ...others].map((f) => (
+            <li key={f.id} className="flex flex-wrap items-center gap-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-[0.875rem] font-semibold text-ink">{f.funderName}</p>
+                <p className="text-[0.75rem] text-muted">
+                  {f.status === 'offered' ? `Offered ${fmtDateTime(f.createdAt)}` : `${FUNDING_LABEL[f.status].text} · ${fmtDateTime(f.respondedAt || f.updatedAt)}`}
+                  {f.note ? ` · “${f.note}”` : ''}
+                </p>
+              </div>
+              <span className={'rounded-full px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.06em] ' + FUNDING_LABEL[f.status].cls}>
+                {FUNDING_LABEL[f.status].text}
+              </span>
+              {f.status === 'offered' && (
+                <div className="flex gap-2">
+                  {!funder && (
+                    <Button variant="accent" disabled={busy} onClick={() => act(`${f.funderName} is now funding this plan.`, () => respondToFunding(f, 'accepted'))}>
+                      <CheckCircle2 className="h-4 w-4" /> Accept
+                    </Button>
+                  )}
+                  <Button variant="soft" disabled={busy} onClick={() => act('Offer declined.', () => respondToFunding(f, 'declined'))}>
+                    <XCircle className="h-4 w-4" /> Decline
+                  </Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Tile>
   );
 };
 

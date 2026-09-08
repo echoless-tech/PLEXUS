@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FilePlus2, ShieldAlert, ArrowRight, Sparkles, Loader2, ScanLine, Users, BarChart3 } from 'lucide-react';
+import { FilePlus2, ShieldAlert, ArrowRight, Sparkles, Loader2, ScanLine, Users, BarChart3, Landmark } from 'lucide-react';
 import { PageHeader, Tile, Button, Label } from '../components/ui';
 import { useAppStore } from '../stores/appStore';
 import { fetchMilestones, createContract } from '../services/contracts';
 import type { ContractView, Milestone } from '../types';
-import { ContractRow } from './Contracts';
+import { ContractRow, fundingTagsByContract } from './Contracts';
 
 const SECTIONS = [
   {
@@ -39,11 +39,17 @@ const Dashboard: React.FC = () => {
   const loading = useAppStore((s) => s.contractsLoading);
   const loadContracts = useAppStore((s) => s.loadContracts);
   const showToast = useAppStore((s) => s.showToast);
+  const fundings = useAppStore((s) => s.fundings);
+  const setSeekingFunding = useAppStore((s) => s.setSeekingFunding);
 
   const [milestonesByContract, setMbc] = useState<Record<string, Milestone[]>>({});
   const [seeding, setSeeding] = useState(false);
+  const [toggling, setToggling] = useState(false);
 
   const open = useMemo(() => contracts.filter((c) => c.status === 'active'), [contracts]);
+  const fundingTag = useMemo(() => fundingTagsByContract(fundings), [fundings]);
+  const openOffers = useMemo(() => fundings.filter((f) => f.status === 'offered'), [fundings]);
+  const fundedCount = useMemo(() => new Set(fundings.filter((f) => f.status === 'accepted').map((f) => f.contractId)).size, [fundings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,7 +66,13 @@ const Dashboard: React.FC = () => {
 
   const needsAction = useMemo(() => {
     const items: { c: ContractView; label: string }[] = [];
+    // Funding offers first — a funder has chosen one of your plans and is waiting on you.
+    for (const f of openOffers) {
+      const c = contracts.find((x) => x.id === f.contractId);
+      if (c && !items.some((i) => i.c.id === c.id)) items.push({ c, label: `Funding offer from ${f.funderName} — accept or decline` });
+    }
     for (const c of contracts) {
+      if (items.some((i) => i.c.id === c.id)) continue;
       if (c.awaitingMyAcceptance) items.push({ c, label: 'Review and accept the proposal' });
       else if (c.myRole === 'sme' && c.status === 'draft') items.push({ c, label: 'Finish and send this draft' });
       else if (c.status === 'active') {
@@ -72,7 +84,7 @@ const Dashboard: React.FC = () => {
       }
     }
     return items;
-  }, [contracts, milestonesByContract]);
+  }, [contracts, milestonesByContract, openOffers]);
 
   const loadExample = async () => {
     setSeeding(true);
@@ -88,7 +100,6 @@ const Dashboard: React.FC = () => {
           totalValue: 40000,
           expectedDelivery: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
           paymentInstructions: { method: 'eft', accountHolder: profile?.businessName || 'Supplier', bankName: 'FNB', accountNumber: '62000000000', branchCode: '250655' },
-          seekingFunding: false,
           disputeRules:
             'If a stage is disputed, both parties will first try to resolve it in writing within 5 business days. Payment for the disputed stage is paused until resolved; stages already paid are not reversed.',
           milestones: [
@@ -111,10 +122,19 @@ const Dashboard: React.FC = () => {
   };
 
   const unverified = !profile || profile.verificationStatus === 'unverified';
-  const listedForFunding = useMemo(
-    () => contracts.filter((c) => c.myRole === 'sme' && c.seekingFunding && c.status !== 'cancelled' && c.status !== 'draft').length,
-    [contracts],
-  );
+  const seeking = profile?.seekingFunding === true;
+
+  const toggleSeeking = async () => {
+    setToggling(true);
+    try {
+      await setSeekingFunding(!seeking);
+      showToast(!seeking ? 'You are now open to funders.' : 'Hidden from funders.', 'success');
+    } catch (e: any) {
+      showToast(e?.message || 'Could not update.', 'error');
+    } finally {
+      setToggling(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -158,20 +178,40 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
+      {/* ── Funding switch (business-level) ─────────────────────────── */}
+      <Tile className="flex-row flex-wrap items-center gap-4">
+        <div className={'grid h-11 w-11 shrink-0 place-items-center rounded-2xl ' + (seeking ? 'bg-accent text-accent-contrast' : 'bg-surface-inset text-muted')}>
+          <Landmark className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[0.9375rem] font-semibold text-ink">{seeking ? 'Looking for funding — open to funders' : 'Not looking for funding'}</p>
+          <p className="text-[0.8125rem] text-muted">
+            {seeking
+              ? 'Verified funders can browse your live agreements and choose which payment plans to fund. Each choice is an offer you accept or decline — new agreements are never funded automatically.'
+              : 'Turn this on to let verified funders browse your live agreements and offer to fund specific payment plans. You accept or decline every offer.'}
+            {fundedCount > 0 ? ` ${fundedCount} plan${fundedCount === 1 ? '' : 's'} currently funded.` : ''}
+          </p>
+        </div>
+        <Button variant={seeking ? 'soft' : 'accent'} onClick={toggleSeeking} disabled={toggling || unverified} title={unverified ? 'Verify your business first' : undefined}>
+          {toggling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Landmark className="h-4 w-4" />}
+          {seeking ? 'Stop looking' : 'Look for funding'}
+        </Button>
+      </Tile>
+
       {contracts.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex flex-wrap items-baseline gap-x-2">
               <Label>Recent agreements</Label>
               <span className="text-[0.75rem] text-muted">
-                {open.length} active · {contracts.length} total{listedForFunding ? ` · ${listedForFunding} listed for funders` : ''}
+                {open.length} active · {contracts.length} total{fundedCount ? ` · ${fundedCount} funded` : ''}
               </span>
             </div>
             <button onClick={() => navigate('/contracts')} className="text-[0.8125rem] font-medium text-muted hover:text-ink">View all</button>
           </div>
           <div className="space-y-2.5">
             {contracts.slice(0, 5).map((c) => (
-              <ContractRow key={c.id} c={c} onOpen={() => navigate(`/contracts/${c.id}`)} />
+              <ContractRow key={c.id} c={c} funding={fundingTag[c.id]} onOpen={() => navigate(`/contracts/${c.id}`)} />
             ))}
           </div>
         </div>
@@ -191,7 +231,7 @@ const Dashboard: React.FC = () => {
             {needsAction.map(({ c, label }) => (
               <div key={c.id} className="space-y-1">
                 <p className="pl-1 text-[0.75rem] font-semibold text-accent">{label}</p>
-                <ContractRow c={c} onOpen={() => navigate(`/contracts/${c.id}`)} />
+                <ContractRow c={c} funding={fundingTag[c.id]} onOpen={() => navigate(`/contracts/${c.id}`)} />
               </div>
             ))}
           </div>

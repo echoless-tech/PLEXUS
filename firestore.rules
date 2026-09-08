@@ -21,13 +21,13 @@ rules_version = '2';
 //   contracts/{cid}/private/payment   PRIVATE settlement details (two parties only)
 //   contracts/{cid}/milestones/{m}    one doc per stage — role-gated state machine
 //   contracts/{cid}/events/{e}        append-only audit trail, server-timestamped
+//   fundings/{cid}_{funderUid}        a funder's explicit choice to fund ONE plan
 //
 // INVARIANTS ENFORCED HERE
 //   • accountType ('business' | 'funder') is write-once.
 //   • Only a BUSINESS with submitted verification may author an agreement.
 //   • Only the SME edits terms, and only while status == 'draft'.
-//   • 'proposed' terms are frozen: SME may only withdraw, cancel, or toggle
-//     the seekingFunding flag.
+//   • 'proposed' terms are frozen: SME may only withdraw or cancel.
 //   • Only the invited buyer (matching email) can accept; acceptance sets
 //     buyerUid to the caller, status 'active', and lockedAt = server time.
 //   • After activation, milestone amounts/terms cannot change at all.
@@ -35,13 +35,20 @@ rules_version = '2';
 //     Buyer: evidence_submitted → approved | pending(reject); approved → paid.
 //     Either: evidence_submitted|approved → disputed. Resolve → pending
 //     (either) or → approved (buyer only).
-//   • FUNDER (verification submitted) may READ header/milestones/events of
-//     agreements with seekingFunding == true and status ∉ {draft, cancelled}.
-//     Funders can never write to a contract and never read private/payment.
+//   • FUNDER (verification submitted) may READ header/milestones/events of a
+//     business's agreements only while that business's profile says it is
+//     looking for funding (profiles/{sme}.seekingFunding) and the agreement is
+//     ∉ {draft, cancelled}. Funders never write to a contract and never read
+//     private/payment.
+//   • FUNDING is per plan and opt-in on both sides: a funder creates
+//     fundings/{cid}_{self} (status 'offered') for one agreement; only the SME
+//     can accept/decline it; only the funder can withdraw it. New agreements
+//     never inherit a funder — there is no business-level funding record.
 //   • Every timestamp that matters equals request.time (no client clocks).
 //   • Audit events: create-only, actor must be caller, never updated/deleted.
 //   • Business documents: create/delete only, never edited; AI fields reserved.
-//   • Clients may never set verificationStatus to 'verified'.
+//   • Clients may never set verificationStatus to 'verified', nor write the
+//     server-owned rating snapshot (ratingScore / ratingCount).
 //   • Every string/list/map has a hard size cap (mirrors src/types LIMITS).
 // =====================================================================
 
@@ -148,13 +155,25 @@ service cloud.firestore {
       return exists(profilePath(u)) ? get(profilePath(u)).data.accountType : null;
     }
 
-    // Funders may observe agreements the SME has listed for funding — only once
-    // they are out of draft, and only if the funder has submitted verification.
+    // The business-level "looking for funding" switch on the SME's profile.
+    // `get(key, default)` tolerates profiles that predate the field.
+    function smeOpenToFunding(smeUid) {
+      return exists(profilePath(smeUid)) &&
+        get(profilePath(smeUid)).data.get('seekingFunding', false) == true;
+    }
+
+    function isVerifiedFunder() {
+      return accountTypeOf(uid()) == 'funder' && hasSubmittedVerification(uid());
+    }
+
+    // Funders may observe a business's live agreements only while that business
+    // says it is looking for funding, and only once they've submitted verification.
+    // For list queries the caller must constrain smeUid so the profile lookup is
+    // well-defined (see fetchSmeFundingContracts).
     function funderCanObserve(c) {
-      return c.seekingFunding == true &&
-        c.status in ['proposed', 'active', 'completed'] &&
-        accountTypeOf(uid()) == 'funder' &&
-        hasSubmittedVerification(uid());
+      return c.status in ['proposed', 'active', 'completed'] &&
+        isVerifiedFunder() &&
+        smeOpenToFunding(c.smeUid);
     }
 
     // Drafts are private to the SME. Invited buyers see the proposal only.
@@ -252,11 +271,19 @@ service cloud.firestore {
 
     function profileKeys() {
       return ['uid', 'accountType', 'businessName', 'verificationStatus', 'logoDataUrl',
-              'industry', 'description', 'location', 'publicEmail', 'createdAt'];
+              'industry', 'description', 'location', 'publicEmail', 'createdAt', 'seekingFunding'];
+    }
+
+    // Server-owned rating snapshot. Clients may carry it through unchanged
+    // (so a settings save doesn't erase it) but can never set or alter it.
+    function ratingUnchanged(d, before) {
+      return d.get('ratingScore', null) == before.get('ratingScore', null) &&
+        d.get('ratingCount', null) == before.get('ratingCount', null);
     }
 
     function validProfileShape(d, pid) {
-      return d.keys().hasOnly(profileKeys()) && d.keys().hasAll(profileKeys()) &&
+      return d.keys().hasOnly(profileKeys().concat(['ratingScore', 'ratingCount'])) &&
+        d.keys().hasAll(profileKeys()) &&
         d.uid == pid &&
         (d.accountType == null || d.accountType in ['business', 'funder']) &&
         strLen(d.businessName, 1, 120) &&
@@ -267,6 +294,9 @@ service cloud.firestore {
           'services', 'logistics', 'technology', 'agriculture', 'creative', 'other']) &&
         strLen(d.description, 0, 600) && strLen(d.location, 0, 120) &&
         (d.publicEmail == '' || isEmail(d.publicEmail)) &&
+        d.seekingFunding is bool &&
+        // Only businesses can be "looking for funding".
+        (d.seekingFunding == false || d.accountType == 'business') &&
         d.createdAt is timestamp;
     }
 
@@ -276,11 +306,13 @@ service cloud.firestore {
       allow create: if isAuthed() && uid() == pid &&
         validProfileShape(request.resource.data, pid) &&
         request.resource.data.verificationStatus in ['unverified', 'pending'] &&
+        !('ratingScore' in request.resource.data) && !('ratingCount' in request.resource.data) &&
         request.resource.data.createdAt == request.time;
 
       allow update: if isAuthed() && uid() == pid &&
         validProfileShape(request.resource.data, pid) &&
         request.resource.data.createdAt == resource.data.createdAt &&
+        ratingUnchanged(request.resource.data, resource.data) &&
         // accountType may be set once (null → value) and never changed after.
         // (Legacy profiles predate the field; `in` guards the missing-key error.)
         (!('accountType' in resource.data) || resource.data.accountType == null ||
@@ -396,20 +428,11 @@ service cloud.firestore {
         request.resource.data.createdAt == resource.data.createdAt &&
         (
           smeEditsDraft() || smeProposes() || smeWithdraws() || smeCancelsBeforeLock() ||
-          buyerAccepts() || buyerDeclines() || participantClosesActive() || smeTogglesFunding()
+          buyerAccepts() || buyerDeclines() || participantClosesActive()
         );
 
       // History is immutable — agreements are cancelled, never deleted.
       allow delete: if false;
-
-      // ── SME may list / unlist the agreement for funders at any live stage.
-      //    The only field that changes is the flag — terms stay locked.
-      function smeTogglesFunding() {
-        return isSmeOf(resource.data) &&
-          resource.data.status in ['draft', 'proposed', 'active'] &&
-          request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['seekingFunding', 'updatedAt']);
-      }
 
       // ── SME, draft only: free to edit terms. Buyer identity stays null.
       function smeEditsDraft() {
@@ -655,11 +678,7 @@ service cloud.firestore {
           (e.type == 'contract_cancelled' &&
             parentNow(cid).status != 'cancelled' && after.status == 'cancelled') ||
           (e.type == 'contract_completed' &&
-            parentNow(cid).status == 'active' && after.status == 'completed') ||
-          (e.type == 'contract_listed_for_funding' && e.actorRole == 'sme' &&
-            parentNow(cid).seekingFunding == false && after.seekingFunding == true) ||
-          (e.type == 'contract_unlisted_for_funding' && e.actorRole == 'sme' &&
-            parentNow(cid).seekingFunding == true && after.seekingFunding == false)
+            parentNow(cid).status == 'active' && after.status == 'completed')
         );
       }
 
@@ -707,6 +726,81 @@ service cloud.firestore {
 
         allow update, delete: if false;
       }
+    }
+
+    // ───────────────────────── fundings ────────────────────────────
+    // One document per (agreement, funder): fundings/{cid}_{funderUid}.
+    // The id encodes both parties, so a funder can hold at most one funding
+    // per plan and can never impersonate another funder. Funding is opt-in on
+    // both sides and per plan — a business adding agreements creates nothing
+    // here; the funder must select each plan and the SME must accept.
+
+    function fundingKeys() {
+      return ['contractId', 'contractTitle', 'smeUid', 'funderUid', 'funderName', 'note',
+              'status', 'createdAt', 'updatedAt', 'respondedAt'];
+    }
+
+    function validFundingShape(d) {
+      return d.keys().hasOnly(fundingKeys()) && d.keys().hasAll(fundingKeys()) &&
+        d.contractId is string && d.contractId.size() >= 1 && d.contractId.size() <= 64 &&
+        strLen(d.contractTitle, 1, 120) &&
+        d.smeUid is string && d.funderUid is string &&
+        strLen(d.funderName, 1, 120) && strLen(d.note, 0, 300) &&
+        d.status in ['offered', 'accepted', 'declined', 'withdrawn'] &&
+        d.createdAt is timestamp && d.updatedAt is timestamp && optTs(d.respondedAt);
+    }
+
+    match /fundings/{fid} {
+      // Only the two parties to the funding. Queries must constrain
+      // funderUid == self or smeUid == self to be provable.
+      allow read: if isAuthed() &&
+        (uid() == resource.data.funderUid || uid() == resource.data.smeUid);
+
+      // Funder chooses a plan. The plan must belong to a business that is open
+      // to funding and be live; the funder must be verified; the doc id must be
+      // exactly "<contractId>_<callerUid>".
+      allow create: if isAuthed() && isVerifiedFunder() &&
+        validFundingShape(request.resource.data) &&
+        request.resource.data.funderUid == uid() &&
+        fid == request.resource.data.contractId + '_' + uid() &&
+        request.resource.data.funderName == get(profilePath(uid())).data.businessName &&
+        exists(contractPath(request.resource.data.contractId)) &&
+        parentNow(request.resource.data.contractId).smeUid == request.resource.data.smeUid &&
+        parentNow(request.resource.data.contractId).status in ['proposed', 'active'] &&
+        parentNow(request.resource.data.contractId).title == request.resource.data.contractTitle &&
+        smeOpenToFunding(request.resource.data.smeUid) &&
+        request.resource.data.status == 'offered' &&
+        request.resource.data.respondedAt == null &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+
+      // Funder withdraws an open offer, or re-offers a plan they withdrew from
+      // (same live/open checks as create); SME accepts or declines an open
+      // offer. Declines are final. Nothing else on the record may change.
+      allow update: if isAuthed() &&
+        validFundingShape(request.resource.data) &&
+        request.resource.data.updatedAt == request.time &&
+        (
+          (uid() == resource.data.funderUid &&
+            resource.data.status == 'offered' &&
+            request.resource.data.status == 'withdrawn' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+          (uid() == resource.data.funderUid &&
+            resource.data.status == 'withdrawn' &&
+            request.resource.data.status == 'offered' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+            isVerifiedFunder() &&
+            exists(contractPath(resource.data.contractId)) &&
+            parentNow(resource.data.contractId).status in ['proposed', 'active'] &&
+            smeOpenToFunding(resource.data.smeUid)) ||
+          (uid() == resource.data.smeUid &&
+            resource.data.status == 'offered' &&
+            request.resource.data.status in ['accepted', 'declined'] &&
+            request.resource.data.respondedAt == request.time &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'respondedAt']))
+        );
+
+      allow delete: if false;
     }
 
     // ───────────────────── Default deny ────────────────────────────

@@ -45,12 +45,17 @@ function mapProfile(uid: string, d: Record<string, any>): PublicProfile {
     location: d.location ?? '',
     publicEmail: d.publicEmail ?? '',
     createdAt: toDate(d.createdAt),
+    seekingFunding: d.seekingFunding === true,
     ratingScore: typeof d.ratingScore === 'number' ? d.ratingScore : null,
     ratingCount: typeof d.ratingCount === 'number' ? d.ratingCount : 0,
   };
 }
 
-/** Full document body — rules use hasAll, so every key is always written. */
+/**
+ * Full document body — rules use hasAll, so every key is always written.
+ * The server-owned rating snapshot is carried through untouched (the rules
+ * reject any change to it) so a settings save never erases it.
+ */
 function profileDoc(p: PublicProfile, createdAt: unknown) {
   return {
     uid: p.uid,
@@ -63,6 +68,8 @@ function profileDoc(p: PublicProfile, createdAt: unknown) {
     location: p.location.trim().slice(0, 120),
     publicEmail: p.publicEmail.trim().toLowerCase().slice(0, LIMITS.email),
     createdAt,
+    seekingFunding: p.accountType === 'business' && p.seekingFunding === true,
+    ...(p.ratingScore != null ? { ratingScore: p.ratingScore, ratingCount: p.ratingCount ?? 0 } : {}),
   };
 }
 
@@ -80,7 +87,8 @@ export async function ensureProfile(pendingType: AccountType | null = null): Pro
 
   if (snap.exists()) {
     const d = snap.data();
-    const needsUpgrade = !('accountType' in d) || !('logoDataUrl' in d) || !('publicEmail' in d);
+    const needsUpgrade =
+      !('accountType' in d) || !('logoDataUrl' in d) || !('publicEmail' in d) || !('seekingFunding' in d);
     const profile = mapProfile(uid, d);
     if (needsUpgrade) {
       await setDoc(ref, profileDoc(profile, d.createdAt));
@@ -101,6 +109,7 @@ export async function ensureProfile(pendingType: AccountType | null = null): Pro
     location: '',
     publicEmail: auth.currentUser?.email?.toLowerCase() || '',
     createdAt: new Date(),
+    seekingFunding: false,
   };
   await setDoc(ref, profileDoc(fresh, serverTimestamp()));
   return fresh;
@@ -155,6 +164,15 @@ export async function fetchBusinessProfiles(): Promise<PublicProfile[]> {
   return snap.docs
     .map((d) => mapProfile(d.id, d.data()))
     .sort((a, b) => a.businessName.localeCompare(b.businessName));
+}
+
+/**
+ * Business-level switch: while true, verified funders can browse this
+ * business's live agreements and choose which plans to fund. Turning it off
+ * hides the agreements from funders again (existing fundings are unaffected).
+ */
+export async function setSeekingFunding(seeking: boolean): Promise<PublicProfile> {
+  return rewriteOwnProfile({ seekingFunding: seeking });
 }
 
 // ─── Private verification (KYC summary) ──────────────────────────────

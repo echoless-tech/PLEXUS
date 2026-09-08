@@ -4,7 +4,7 @@ import { FilePlus2, ChevronRight, Inbox, Landmark } from 'lucide-react';
 import { PageHeader, Tile, Button, SegmentTabs } from '../components/ui';
 import { ContractStatusPill } from '../components/common';
 import { useAppStore } from '../stores/appStore';
-import type { ContractView } from '../types';
+import type { ContractView, Funding } from '../types';
 import { zar, fmtDate } from '../lib/format';
 
 const TABS = ['All', 'Needs my action', 'I supply', 'I pay', 'Closed'];
@@ -12,9 +12,11 @@ const TABS = ['All', 'Needs my action', 'I supply', 'I pay', 'Closed'];
 const Contracts: React.FC = () => {
   const navigate = useNavigate();
   const contracts = useAppStore((s) => s.contracts);
+  const fundings = useAppStore((s) => s.fundings);
   const loading = useAppStore((s) => s.contractsLoading);
   const error = useAppStore((s) => s.contractsError);
   const [tab, setTab] = useState(0);
+  const fundingTag = useMemo(() => fundingTagsByContract(fundings), [fundings]);
 
   const filtered = useMemo(() => {
     switch (tab) {
@@ -71,7 +73,7 @@ const Contracts: React.FC = () => {
       ) : (
         <div className="space-y-2.5">
           {filtered.map((c) => (
-            <ContractRow key={c.id} c={c} onOpen={() => navigate(`/contracts/${c.id}`)} />
+            <ContractRow key={c.id} c={c} funding={fundingTag[c.id]} onOpen={() => navigate(`/contracts/${c.id}`)} />
           ))}
         </div>
       )}
@@ -79,7 +81,19 @@ const Contracts: React.FC = () => {
   );
 };
 
-export const ContractRow: React.FC<{ c: ContractView; onOpen: () => void }> = ({ c, onOpen }) => (
+/** "Funded · X" once the SME has accepted a funder; "N offer(s)" while offers are open. */
+export function fundingTagsByContract(fundings: Funding[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const open: Record<string, number> = {};
+  for (const f of fundings) {
+    if (f.status === 'accepted') out[f.contractId] = `Funded · ${f.funderName}`;
+    else if (f.status === 'offered') open[f.contractId] = (open[f.contractId] || 0) + 1;
+  }
+  for (const [cid, n] of Object.entries(open)) if (!out[cid]) out[cid] = `${n} funding offer${n === 1 ? '' : 's'}`;
+  return out;
+}
+
+export const ContractRow: React.FC<{ c: ContractView; funding?: string; onOpen: () => void }> = ({ c, funding, onOpen }) => (
   <Tile interactive as="button" onClick={onOpen} className="w-full flex-row items-center gap-3 !py-4 text-left">
     <div className={'grid h-10 w-10 shrink-0 place-items-center rounded-xl text-[0.6875rem] font-bold uppercase tracking-wider ' + (c.myRole === 'sme' ? 'bg-ink text-canvas' : 'bg-accent-soft text-accent')}>
       {c.myRole === 'sme' ? 'Sup' : 'Buy'}
@@ -92,9 +106,9 @@ export const ContractRow: React.FC<{ c: ContractView; onOpen: () => void }> = ({
         ) : (
           <ContractStatusPill status={c.status} />
         )}
-        {c.seekingFunding && c.status !== 'cancelled' && (
-          <span title="Looking for funds" className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">
-            <Landmark className="h-3 w-3" /> Funds
+        {funding && c.status !== 'cancelled' && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-accent">
+            <Landmark className="h-3 w-3" /> {funding}
           </span>
         )}
       </div>

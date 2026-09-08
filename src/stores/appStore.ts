@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import type { AccountType, BusinessDocument, ContractView, PublicProfile, Verification } from '../types';
+import type { AccountType, BusinessDocument, ContractView, Funding, PublicProfile, Verification } from '../types';
 import type { AuthUser } from '../services/auth';
 import * as profileSvc from '../services/profile';
 import * as contractSvc from '../services/contracts';
+import * as fundingSvc from '../services/funding';
 import { AccentThemeKey, getStoredAccentTheme, storeAccentTheme } from '../theme/accents';
 
 type ToastType = 'success' | 'warning' | 'error' | 'info';
@@ -42,9 +43,15 @@ interface AppState {
   businesses: PublicProfile[];
   loadBusinesses: () => Promise<void>;
 
-  // Funder: listed payment plans
+  // Funder: live agreements of businesses that are open to funding
   opportunities: ContractView[];
   loadOpportunities: () => Promise<void>;
+
+  // Fundings — funder: mine; business: offers on my agreements
+  fundings: Funding[];
+  loadFundings: () => Promise<void>;
+  /** Business-level "looking for funding" switch. */
+  setSeekingFunding: (seeking: boolean) => Promise<void>;
 
   // Navigation
   sidebarOpen: boolean;
@@ -94,6 +101,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         documents: [],
         businesses: [],
         opportunities: [],
+        fundings: [],
       });
     }
   },
@@ -123,9 +131,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   refreshWorkspace: async () => {
     const type = get().profile?.accountType;
     if (type === 'business') {
-      await Promise.all([get().loadContracts(), get().loadDocuments()]);
+      await Promise.all([get().loadContracts(), get().loadDocuments(), get().loadFundings()]);
     } else if (type === 'funder') {
-      await Promise.all([get().loadBusinesses(), get().loadOpportunities()]);
+      // Opportunities depend on which businesses are open to funding.
+      await get().loadBusinesses();
+      await Promise.all([get().loadOpportunities(), get().loadFundings()]);
     }
   },
 
@@ -163,15 +173,37 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  // Funder opportunities
+  // Funder opportunities — live agreements of businesses open to funding.
   opportunities: [],
   loadOpportunities: async () => {
     try {
-      set({ opportunities: await contractSvc.fetchFundingOpportunities() });
+      let businesses = get().businesses;
+      if (businesses.length === 0) {
+        businesses = await profileSvc.fetchBusinessProfiles();
+        set({ businesses });
+      }
+      const seeking = businesses.filter((b) => b.seekingFunding).map((b) => b.uid);
+      set({ opportunities: await contractSvc.fetchFundingOpportunities(seeking) });
     } catch (err: any) {
-      // Expected until the funder has submitted verification (rules deny the query).
+      // Expected until the funder has submitted verification (rules deny the queries).
       set({ opportunities: [] });
     }
+  },
+
+  // Fundings
+  fundings: [],
+  loadFundings: async () => {
+    const type = get().profile?.accountType;
+    try {
+      if (type === 'funder') set({ fundings: await fundingSvc.fetchMyFundings() });
+      else if (type === 'business') set({ fundings: await fundingSvc.fetchFundingsForMyAgreements() });
+    } catch (err: any) {
+      console.warn('Fundings load failed:', err?.message);
+    }
+  },
+  setSeekingFunding: async (seeking) => {
+    const profile = await profileSvc.setSeekingFunding(seeking);
+    set({ profile });
   },
 
   // Navigation
