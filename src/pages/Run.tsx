@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { ScanLine, Upload, FileText, Trash2, Loader2, Camera, Receipt, Landmark, File } from 'lucide-react';
 import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
+import DocumentScanner from '../components/common/DocumentScanner';
 import { useAppStore } from '../stores/appStore';
 import { addDocument, removeDocument, type DocumentInput } from '../services/profile';
 import { fileToDataUrl } from '../lib/files';
@@ -49,7 +50,7 @@ const Run: React.FC = () => {
   const [reading, setReading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const filtered = useMemo(() => {
@@ -84,6 +85,19 @@ const Run: React.FC = () => {
     } finally {
       setReading(false);
     }
+  };
+
+  const onScan = (dataUrl: string) => {
+    const now = new Date();
+    const stamp = `${now.toISOString().slice(0, 10)}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    setError(null);
+    setInput((i) => ({
+      ...i,
+      dataUrl,
+      fileName: `scan-${stamp}.jpg`,
+      mimeType: 'image/jpeg',
+      title: i.title || `${KIND_LABEL[i.kind]} · ${fmtDate(i.documentDate)}`,
+    }));
   };
 
   const save = async (e: React.FormEvent) => {
@@ -166,7 +180,7 @@ const Run: React.FC = () => {
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="accent" onClick={() => cameraRef.current?.click()} disabled={reading} className="flex-1">
+                  <Button type="button" variant="accent" onClick={() => setScannerOpen(true)} disabled={reading} className="flex-1">
                     {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />} Scan with camera
                   </Button>
                   <Button type="button" variant="soft" onClick={() => fileRef.current?.click()} disabled={reading} className="flex-1">
@@ -174,7 +188,6 @@ const Run: React.FC = () => {
                   </Button>
                 </div>
               )}
-              <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={attach} />
               <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden onChange={attach} />
             </div>
 
@@ -288,6 +301,14 @@ const Run: React.FC = () => {
           )}
         </div>
       </div>
+
+      <DocumentScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onCapture={onScan}
+        maxEdge={1600}
+        maxBytes={LIMITS.documentDataUrl}
+      />
     </div>
   );
 };
