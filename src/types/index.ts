@@ -224,6 +224,15 @@ export interface PublicProfile {
   /** Contact address the business chooses to publish (may differ from login). */
   publicEmail: string;
   createdAt: Date;
+  /**
+   * Denormalised public rating snapshot so it can be shown in discovery lists
+   * (Connect) where the viewer cannot read the underlying agreements. The
+   * authoritative rating is still computed live from rule-enforced data on the
+   * funder/statistics screens; in production this snapshot is written by a
+   * Cloud Function that owns the calculation.
+   */
+  ratingScore?: number | null;
+  ratingCount?: number;
 }
 
 export type DocumentKind = 'invoice' | 'receipt' | 'bank_statement' | 'other';

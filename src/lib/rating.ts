@@ -83,3 +83,31 @@ export const confidenceLabel: Record<BusinessRating['confidence'], string> = {
   medium: 'Established',
   high: 'Extensive track record',
 };
+
+/** Build a rating object from a profile's denormalised snapshot (Connect etc.). */
+export function ratingFromProfile(p: { ratingScore?: number | null; ratingCount?: number }): BusinessRating | null {
+  if (p.ratingScore == null) return null;
+  const count = p.ratingCount ?? 0;
+  const confidence: BusinessRating['confidence'] = count >= 12 ? 'high' : count >= 4 ? 'medium' : count > 0 ? 'low' : 'none';
+  return {
+    score: p.ratingScore,
+    confidence,
+    agreementsTotal: 0,
+    agreementsActive: 0,
+    agreementsCompleted: 0,
+    agreementsCancelled: 0,
+    milestonesPaid: count,
+    milestonesTotal: count,
+    disputesRaised: 0,
+    rejectionsReceived: 0,
+    valueContracted: 0,
+    valuePaid: 0,
+    firstTimeApprovalRate: null,
+  };
+}
+
+/** Prefer the live rating; fall back to the profile snapshot when there's no live data. */
+export function displayRating(live: BusinessRating, p: { ratingScore?: number | null; ratingCount?: number }): BusinessRating {
+  if (live.confidence !== 'none') return live;
+  return ratingFromProfile(p) ?? live;
+}

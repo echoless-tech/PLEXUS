@@ -45,6 +45,8 @@ function mapProfile(uid: string, d: Record<string, any>): PublicProfile {
     location: d.location ?? '',
     publicEmail: d.publicEmail ?? '',
     createdAt: toDate(d.createdAt),
+    ratingScore: typeof d.ratingScore === 'number' ? d.ratingScore : null,
+    ratingCount: typeof d.ratingCount === 'number' ? d.ratingCount : 0,
   };
 }
 

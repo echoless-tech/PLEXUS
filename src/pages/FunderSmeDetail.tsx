@@ -7,7 +7,7 @@ import { useAppStore } from '../stores/appStore';
 import { fetchProfile } from '../services/profile';
 import { fetchSmeFundingContracts, summarise } from '../services/contracts';
 import { useMilestonesFor } from '../hooks/useMilestonesFor';
-import { computeRating } from '../lib/rating';
+import { computeRating, displayRating } from '../lib/rating';
 import { zar, fmtDate } from '../lib/format';
 import { INDUSTRY_LABELS, type ContractView, type PublicProfile } from '../types';
 
@@ -51,7 +51,7 @@ const FunderSmeDetail: React.FC = () => {
   }, [uid]);
 
   const { byContract, all, loading } = useMilestonesFor(plans);
-  const rating = useMemo(() => computeRating(plans, all), [plans, all]);
+  const rating = useMemo(() => displayRating(computeRating(plans, all), sme ?? {}), [plans, all, sme]);
   const money = useMemo(() => summarise(all), [all]);
   const open = plans.filter((c) => c.status === 'proposed' || c.status === 'active');
 

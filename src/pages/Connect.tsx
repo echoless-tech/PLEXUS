@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, MapPin, Mail, Users } from 'lucide-react';
+import { Search, MapPin, Mail, Users, CalendarDays } from 'lucide-react';
 import { PageHeader, Tile, Label } from '../components/ui';
-import { BusinessAvatar, VerificationBadge } from '../components/common';
+import { BusinessAvatar, VerificationBadge, RatingStars } from '../components/common';
 import { useAppStore } from '../stores/appStore';
+import { ratingFromProfile } from '../lib/rating';
+import { fmtDate } from '../lib/format';
 import { INDUSTRY_LABELS, type Industry, type PublicProfile } from '../types';
 
 const fieldCls =
@@ -81,32 +83,52 @@ const Connect: React.FC = () => {
           <p className="text-[0.8125rem] text-muted">Try a different search or industry.</p>
         </Tile>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {list.map((b) => (
-            <Tile key={b.uid} className="gap-3">
-              <div className="flex items-start gap-3">
-                <BusinessAvatar name={b.businessName} logoDataUrl={b.logoDataUrl} size={48} />
+        <div className="space-y-2.5">
+          {list.map((b) => {
+            const rating = ratingFromProfile(b);
+            return (
+              <Tile key={b.uid} className="flex-row items-start gap-4">
+                <BusinessAvatar name={b.businessName} logoDataUrl={b.logoDataUrl} size={72} rounded="rounded-2xl" className="hidden sm:block" />
+                <BusinessAvatar name={b.businessName} logoDataUrl={b.logoDataUrl} size={52} rounded="rounded-2xl" className="sm:hidden" />
+
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[0.9375rem] font-bold text-ink">{b.businessName}</p>
-                  <p className="truncate text-[0.75rem] text-muted">{b.industry ? INDUSTRY_LABELS[b.industry] : 'Industry not specified'}</p>
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <p className="truncate text-[1.0625rem] font-bold text-ink">{b.businessName}</p>
+                    <VerificationBadge status={b.verificationStatus} />
+                  </div>
+
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.8125rem] text-muted">
+                    <span className="font-medium text-ink/80">{b.industry ? INDUSTRY_LABELS[b.industry] : 'Industry not specified'}</span>
+                    {b.location && (
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin className="h-3.5 w-3.5" /> {b.location}
+                      </span>
+                    )}
+                    <span className="inline-flex items-center gap-1">
+                      <CalendarDays className="h-3.5 w-3.5" /> Since {fmtDate(b.createdAt)}
+                    </span>
+                  </div>
+
+                  {rating ? (
+                    <RatingStars rating={rating} className="mt-1.5" />
+                  ) : (
+                    <p className="mt-1.5 text-[0.75rem] text-faint">Not yet rated</p>
+                  )}
+
+                  {b.description && <p className="mt-2 line-clamp-2 text-[0.8125rem] leading-snug text-muted">{b.description}</p>}
+
+                  {b.publicEmail && (
+                    <button
+                      onClick={() => copyEmail(b.publicEmail)}
+                      className="mt-2 inline-flex items-center gap-1.5 text-[0.8125rem] font-semibold text-accent hover:opacity-80"
+                    >
+                      <Mail className="h-3.5 w-3.5" /> {b.publicEmail}
+                    </button>
+                  )}
                 </div>
-              </div>
-              <VerificationBadge status={b.verificationStatus} />
-              {b.description && <p className="line-clamp-3 text-[0.8125rem] leading-snug text-muted">{b.description}</p>}
-              <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem] text-muted">
-                {b.location && (
-                  <span className="inline-flex items-center gap-1">
-                    <MapPin className="h-3.5 w-3.5" /> {b.location}
-                  </span>
-                )}
-                {b.publicEmail && (
-                  <button onClick={() => copyEmail(b.publicEmail)} className="inline-flex items-center gap-1 font-medium text-accent hover:opacity-80">
-                    <Mail className="h-3.5 w-3.5" /> {b.publicEmail}
-                  </button>
-                )}
-              </div>
-            </Tile>
-          ))}
+              </Tile>
+            );
+          })}
         </div>
       )}
     </div>

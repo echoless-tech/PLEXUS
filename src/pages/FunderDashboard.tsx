@@ -5,7 +5,7 @@ import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
 import { BusinessAvatar, RatingStars, VerificationBadge } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import { useMilestonesFor } from '../hooks/useMilestonesFor';
-import { computeRating } from '../lib/rating';
+import { computeRating, displayRating } from '../lib/rating';
 import { INDUSTRY_LABELS, type BusinessRating, type PublicProfile } from '../types';
 
 const fieldCls =
@@ -40,7 +40,8 @@ const FunderDashboard: React.FC = () => {
     const out: Record<string, BusinessRating> = {};
     for (const b of businesses) {
       const mine = opportunities.filter((c) => c.smeUid === b.uid);
-      out[b.uid] = computeRating(mine, mine.flatMap((c) => byContract[c.id] || []));
+      const live = computeRating(mine, mine.flatMap((c) => byContract[c.id] || []));
+      out[b.uid] = displayRating(live, b);
     }
     return out;
   }, [businesses, opportunities, byContract]);
