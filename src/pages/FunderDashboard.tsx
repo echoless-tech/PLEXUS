@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, ShieldAlert, ArrowRight, MapPin, Landmark, Users, RefreshCw } from 'lucide-react';
+import { Search, ShieldAlert, ArrowRight, MapPin, Landmark, Users, RefreshCw, CalendarDays, BadgeCheck } from 'lucide-react';
 import { PageHeader, Tile, Button, Label, SegmentTabs } from '../components/ui';
-import { BusinessAvatar, RatingStars, VerificationBadge } from '../components/common';
+import { RatingStars } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import { useMilestonesFor } from '../hooks/useMilestonesFor';
 import { computeRating, displayRating } from '../lib/rating';
+import { fmtDate } from '../lib/format';
 import { INDUSTRY_LABELS, type BusinessRating, type PublicProfile } from '../types';
 
 const fieldCls =
@@ -133,7 +134,7 @@ const FunderDashboard: React.FC = () => {
           <p className="text-[0.8125rem] text-muted">{tab === 1 ? 'Check back soon — SMEs list plans as buyers accept them.' : 'Try a different search.'}</p>
         </Tile>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="space-y-2.5">
           {list.map((b) => (
             <SmeCard key={b.uid} b={b} rating={ratings[b.uid]} seeking={seekingUids.has(b.uid)} plans={opportunities.filter((c) => c.smeUid === b.uid).length} onOpen={() => navigate(`/funder/sme/${b.uid}`)} />
           ))}
@@ -143,30 +144,53 @@ const FunderDashboard: React.FC = () => {
   );
 };
 
-const SmeCard: React.FC<{ b: PublicProfile; rating: BusinessRating | undefined; seeking: boolean; plans: number; onOpen: () => void }> = ({ b, rating, seeking, plans, onOpen }) => (
-  <Tile interactive as="button" onClick={onOpen} className="gap-3 text-left">
-    <div className="flex items-start gap-3">
-      <BusinessAvatar name={b.businessName} logoDataUrl={b.logoDataUrl} size={56} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[1rem] font-bold text-ink">{b.businessName}</p>
-        <p className="truncate text-[0.75rem] text-muted">{b.industry ? INDUSTRY_LABELS[b.industry] : 'Industry not specified'}</p>
-        {rating && <RatingStars rating={rating} className="mt-1" />}
+const SmeCard: React.FC<{ b: PublicProfile; rating: BusinessRating | undefined; seeking: boolean; plans: number; onOpen: () => void }> = ({ b, rating, seeking, plans, onOpen }) => {
+  const initials = b.businessName.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+  return (
+    <Tile interactive as="button" onClick={onOpen} className="w-full flex-row items-stretch gap-4 text-left">
+      <div className="relative w-24 shrink-0 self-stretch overflow-hidden rounded-2xl bg-surface-inset sm:w-32">
+        {b.logoDataUrl ? (
+          <img src={b.logoDataUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <div className="grid h-full w-full place-items-center bg-ink text-[1.5rem] font-bold text-canvas">{initials || 'P'}</div>
+        )}
       </div>
-    </div>
-    <div className="flex flex-wrap items-center gap-2">
-      <VerificationBadge status={b.verificationStatus} />
-      {seeking && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-accent-contrast">
-          <Landmark className="h-3 w-3" /> Looking for funds · {plans}
-        </span>
-      )}
-    </div>
-    {b.description && <p className="line-clamp-2 text-[0.8125rem] leading-snug text-muted">{b.description}</p>}
-    <div className="mt-auto flex items-center justify-between text-[0.75rem] text-muted">
-      <span className="inline-flex items-center gap-1">{b.location ? (<><MapPin className="h-3.5 w-3.5" /> {b.location}</>) : 'Location not specified'}</span>
-      <ArrowRight className="h-4 w-4 text-faint" />
-    </div>
-  </Tile>
-);
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="truncate text-[1.0625rem] font-bold text-ink">{b.businessName}</p>
+          {b.verificationStatus === 'verified' && (
+            <BadgeCheck className="h-[18px] w-[18px] shrink-0 text-white" fill="#1d9bf0" strokeWidth={2.5} aria-label="Verified business">
+              <title>Verified business</title>
+            </BadgeCheck>
+          )}
+          {seeking && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-accent-contrast">
+              <Landmark className="h-3 w-3" /> Looking for funds · {plans}
+            </span>
+          )}
+        </div>
+
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.8125rem] text-muted">
+          <span className="font-medium text-ink/80">{b.industry ? INDUSTRY_LABELS[b.industry] : 'Industry not specified'}</span>
+          {b.location && (
+            <span className="inline-flex items-center gap-1">
+              <MapPin className="h-3.5 w-3.5" /> {b.location}
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1">
+            <CalendarDays className="h-3.5 w-3.5" /> Since {fmtDate(b.createdAt)}
+          </span>
+        </div>
+
+        {rating && <RatingStars rating={rating} className="mt-1.5" />}
+
+        {b.description && <p className="mt-2 line-clamp-2 text-[0.8125rem] leading-snug text-muted">{b.description}</p>}
+      </div>
+
+      <ArrowRight className="hidden h-4 w-4 shrink-0 self-center text-faint sm:block" />
+    </Tile>
+  );
+};
 
 export default FunderDashboard;
