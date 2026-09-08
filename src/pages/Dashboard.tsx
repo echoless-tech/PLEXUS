@@ -21,10 +21,10 @@ const SECTIONS = [
     text: 'Find verified businesses on PLEXUS to buy from, supply to or collaborate with.',
   },
   {
-    to: '/statistics',
+    to: '/analytics',
     icon: BarChart3,
-    title: 'Statistics',
-    text: 'Your rating, on-time delivery and payment performance — what funders and buyers see.',
+    title: 'Analytics',
+    text: 'Revenue trends, cash flow and agreement performance — the charts funders and buyers weigh.',
   },
 ];
 

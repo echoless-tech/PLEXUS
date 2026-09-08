@@ -48,14 +48,14 @@ const ChooseAccountType: React.FC = () => {
             icon={<Building2 className="h-6 w-6" />}
             title="I run a business"
             body="Create progressive payment agreements with buyers, get paid as work progresses, upload records that show performance, and connect with other businesses."
-            bullets={['Run · Connect · Statistics', 'Payment agreements & milestones', 'Optionally list plans for funders']}
+            bullets={['Run · Connect · Analytics', 'Payment agreements & milestones', 'Optionally list plans for funders']}
           />
           <Option
             active={picked === 'funder'}
             onClick={() => setPicked('funder')}
             icon={<Landmark className="h-6 w-6" />}
             title="I am a funder"
-            body="Browse verified SMEs with ratings and statistics, see the payment plans they have listed for funding, and follow buyer-confirmed progress on each stage."
+            body="Browse verified SMEs with ratings and analytics, see the payment plans they have listed for funding, and follow buyer-confirmed progress on each stage."
             bullets={['SME directory with ratings', 'Listed payment plans', 'Read-only, audit-backed view']}
           />
         </div>

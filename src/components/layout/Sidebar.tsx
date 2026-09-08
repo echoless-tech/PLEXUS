@@ -36,7 +36,7 @@ const businessNav: NavItem[] = [
   { title: 'Dashboard', path: '/', icon: <LayoutDashboard size={19} strokeWidth={1.75} /> },
   { title: 'Run', path: '/run', icon: <FolderOpen size={19} strokeWidth={1.75} /> },
   { title: 'Connect', path: '/connect', icon: <Users size={19} strokeWidth={1.75} /> },
-  { title: 'Statistics', path: '/statistics', icon: <BarChart3 size={19} strokeWidth={1.75} /> },
+  { title: 'Analytics', path: '/analytics', icon: <BarChart3 size={19} strokeWidth={1.75} /> },
   { title: 'Agreements', path: '/contracts', icon: <FileSignature size={19} strokeWidth={1.75} />, prefix: true },
   { title: 'New agreement', path: '/contracts/new', icon: <FilePlus2 size={19} strokeWidth={1.75} /> },
 ];

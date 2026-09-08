@@ -10,7 +10,7 @@ import ChooseAccountType from './pages/ChooseAccountType';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const Run = React.lazy(() => import('./pages/Run'));
 const Connect = React.lazy(() => import('./pages/Connect'));
-const Statistics = React.lazy(() => import('./pages/Statistics'));
+const Analytics = React.lazy(() => import('./pages/Analytics'));
 const Contracts = React.lazy(() => import('./pages/Contracts'));
 const NewContract = React.lazy(() => import('./pages/NewContract'));
 const ContractDetail = React.lazy(() => import('./pages/ContractDetail'));
@@ -89,7 +89,8 @@ const GatedApp: React.FC = () => {
         <Route index element={lazy(<Dashboard />)} />
         <Route path="run" element={lazy(<Run />)} />
         <Route path="connect" element={lazy(<Connect />)} />
-        <Route path="statistics" element={lazy(<Statistics />)} />
+        <Route path="analytics" element={lazy(<Analytics />)} />
+        <Route path="statistics" element={lazy(<Analytics />)} />
         <Route path="contracts" element={lazy(<Contracts />)} />
         <Route path="contracts/new" element={lazy(<NewContract />)} />
         <Route path="contracts/:id" element={lazy(<ContractDetail />)} />

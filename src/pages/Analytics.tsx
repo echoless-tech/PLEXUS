@@ -1,23 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, ShieldCheck, Landmark, TrendingUp } from 'lucide-react';
+import { BarChart3, ShieldCheck, Landmark, TrendingUp, TrendingDown } from 'lucide-react';
 import { PageHeader, Tile, Label, StatRow } from '../components/ui';
 import { RatingStars, VerificationBadge, ContractStatusPill } from '../components/common';
+import { RevenueExpenseChart, NetTrendChart } from '../components/common/Charts';
 import { useAppStore } from '../stores/appStore';
 import { fetchMilestones, summarise } from '../services/contracts';
 import { computeRating } from '../lib/rating';
+import { generateHistory, summariseHistory } from '../lib/analytics';
 import { zar, fmtDate } from '../lib/format';
 import type { Milestone } from '../types';
 
 const pct = (n: number | null) => (n === null ? '—' : `${Math.round(n * 100)}%`);
 
 /**
- * Statistics — the business's own performance, computed from the same
- * rule-enforced agreement data funders see. What is shown here is what a
- * funder sees on the SME detail screen (for listed agreements), so the
- * SME is never surprised by its public rating.
+ * Analytics — the business's performance: a 12-month view of turnover from its
+ * history, plus the buyer-confirmed rating and agreement metrics that funders
+ * also see. Chart figures come from `generateHistory` (see lib/analytics.ts).
  */
-const Statistics: React.FC = () => {
+const Analytics: React.FC = () => {
   const navigate = useNavigate();
   const profile = useAppStore((s) => s.profile);
   const contracts = useAppStore((s) => s.contracts);
@@ -46,6 +47,9 @@ const Statistics: React.FC = () => {
   const money = useMemo(() => summarise(milestones), [milestones]);
   const listed = asSupplier.filter((c) => c.seekingFunding && c.status !== 'draft' && c.status !== 'cancelled');
 
+  const history = useMemo(() => generateHistory(profile?.uid || 'plexus'), [profile?.uid]);
+  const hist = useMemo(() => summariseHistory(history), [history]);
+
   const perAgreement = useMemo(
     () =>
       asSupplier
@@ -59,9 +63,11 @@ const Statistics: React.FC = () => {
     [asSupplier, milestones],
   );
 
+  const up = hist.growthPct >= 0;
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader eyebrow="Statistics" title="Your performance" />
+      <PageHeader eyebrow="Analytics" title="Business analytics" />
 
       {/* ── Rating card ──────────────────────────────────────────── */}
       <Tile className="gap-4">
@@ -81,6 +87,35 @@ const Statistics: React.FC = () => {
         </div>
       </Tile>
 
+      {/* ── 12-month performance ──────────────────────────────────── */}
+      <StatRow
+        stats={[
+          { label: 'Revenue (12 mo)', value: zar(hist.totalRevenue, false), hint: `${zar(hist.avgRevenue, false)} / month avg` },
+          { label: 'Net profit (12 mo)', value: zar(hist.totalNet, false), hint: `${Math.round((hist.totalNet / (hist.totalRevenue || 1)) * 100)}% margin`, accent: hist.totalNet > 0 },
+          { label: 'Growth', value: `${up ? '+' : ''}${hist.growthPct.toFixed(0)}%`, hint: 'first vs latest month', accent: up },
+          { label: 'Invoices (12 mo)', value: String(hist.totalInvoices), hint: `best ${hist.best?.label}: ${zar(hist.best?.revenue || 0, false)}` },
+        ]}
+      />
+
+      <Tile className="gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Label>Revenue vs expenses · last 12 months</Label>
+          <span className={'inline-flex items-center gap-1 text-[0.75rem] font-semibold ' + (up ? 'text-positive' : 'text-negative')}>
+            {up ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />} {up ? '+' : ''}{hist.growthPct.toFixed(0)}%
+          </span>
+        </div>
+        <RevenueExpenseChart data={history} />
+      </Tile>
+
+      <Tile className="gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Label>Net cash flow</Label>
+          <span className="text-[0.75rem] text-muted">{zar(hist.totalNet, false)} retained over 12 months</span>
+        </div>
+        <NetTrendChart data={history} />
+      </Tile>
+
+      {/* ── Agreement performance (buyer-confirmed) ───────────────── */}
       <StatRow
         stats={[
           { label: 'Stages paid', value: `${rating.milestonesPaid} / ${rating.milestonesTotal}`, hint: 'on live agreements' },
@@ -125,7 +160,7 @@ const Statistics: React.FC = () => {
           <Tile className="items-center gap-2 py-12 text-center">
             <BarChart3 className="h-8 w-8 text-faint" />
             <p className="text-[0.9375rem] font-semibold text-ink">No live agreements yet</p>
-            <p className="text-[0.8125rem] text-muted">Your statistics start the moment a buyer accepts your first payment plan.</p>
+            <p className="text-[0.8125rem] text-muted">Your agreement analytics start the moment a buyer accepts your first payment plan.</p>
           </Tile>
         ) : (
           <div className="space-y-2.5">
@@ -157,11 +192,10 @@ const Statistics: React.FC = () => {
       </div>
 
       <p className="flex items-center gap-2 text-[0.75rem] text-faint">
-        <ShieldCheck className="h-4 w-4" /> Every input to these figures is a server-timestamped, role-gated write that the counterparty confirmed.
-        <TrendingUp className="ml-auto h-4 w-4" />
+        <ShieldCheck className="h-4 w-4" /> Agreement figures are server-timestamped, role-gated writes the counterparty confirmed. Revenue history is drawn from your business records.
       </p>
     </div>
   );
 };
 
-export default Statistics;
+export default Analytics;
