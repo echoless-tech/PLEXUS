@@ -87,14 +87,12 @@ const Connect: React.FC = () => {
             const rating = ratingFromProfile(b);
             const initials = b.businessName.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
             return (
-              <Tile key={b.uid} className="flex-row items-stretch gap-4">
-                <div className="relative w-24 shrink-0 self-stretch overflow-hidden rounded-2xl bg-surface-inset sm:w-32">
-                  {b.logoDataUrl ? (
-                    <img src={b.logoDataUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                  ) : (
-                    <div className="grid h-full w-full place-items-center bg-ink text-[1.5rem] font-bold text-canvas">{initials || 'P'}</div>
-                  )}
-                </div>
+              <Tile key={b.uid} className="flex-row items-start gap-4">
+                {b.logoDataUrl ? (
+                  <img src={b.logoDataUrl} alt="" className="h-24 w-24 shrink-0 rounded-2xl bg-surface-inset object-cover sm:h-32 sm:w-32" />
+                ) : (
+                  <div className="grid h-24 w-24 shrink-0 place-items-center rounded-2xl bg-ink text-[1.5rem] font-bold text-canvas sm:h-32 sm:w-32">{initials || 'P'}</div>
+                )}
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
