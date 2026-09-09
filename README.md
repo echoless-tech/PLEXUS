@@ -134,7 +134,7 @@ Three demo accounts already exist on the shared project; Ubuntu Textiles is look
 | Buyer (also a business account) | Example Retail (Pty) Ltd | `buyer.plexus.test@example.com` | `buyerpass123` |
 | Funder | Vuka Capital | `funder.plexus.test@example.com` | `funderpass123` |
 
-While signed in as any of these, a **Switch to Funder / Business demo** button appears in the header (with a menu for the third account) so you can hop between the two sides of a deal without retyping credentials. It renders only for these demo accounts and can only sign into another one of them ([src/lib/demo.ts](src/lib/demo.ts)).
+While signed in as any of these, **Settings → Developer · demo accounts** lets you switch straight to the other side of a deal (business ↔ funder, buyer too) without retyping credentials. It renders only for these demo accounts and can only sign into another one of them ([src/lib/demo.ts](src/lib/demo.ts)).
 
 Or run it from scratch:
 

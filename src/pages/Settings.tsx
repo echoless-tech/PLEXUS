@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, LogOut, Moon, Sun, ImagePlus, Trash2 } from 'lucide-react';
 import { PageHeader, Tile, Button, Label } from '../components/ui';
-import { VerificationBadge, BusinessAvatar } from '../components/common';
+import { VerificationBadge, BusinessAvatar, DemoAccountSwitcher } from '../components/common';
 import { useAppStore } from '../stores/appStore';
 import { updateProfileDetails, type ProfileDetailsInput } from '../services/profile';
 import { signOut } from '../services/auth';
@@ -210,6 +210,8 @@ const Settings: React.FC = () => {
           </Button>
         </div>
       </Tile>
+
+      <DemoAccountSwitcher />
     </div>
   );
 };
