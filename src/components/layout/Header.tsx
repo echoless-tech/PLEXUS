@@ -5,6 +5,7 @@ import { useAppStore } from '../../stores/appStore';
 import { signOut, sendVerificationEmail } from '../../services/auth';
 import { GhostButton } from '../ui';
 import { VerificationBadge, BusinessAvatar } from '../common';
+import { DemoSwitcher } from './DemoSwitcher';
 
 export const Header: React.FC = () => {
   const navigate = useNavigate();
@@ -66,6 +67,8 @@ export const Header: React.FC = () => {
       )}
 
       <div ref={wrapRef} className="ml-auto flex items-center gap-2">
+        <DemoSwitcher />
+
         {profile && (
           <div className="hidden sm:block">
             <VerificationBadge status={profile.verificationStatus} />
