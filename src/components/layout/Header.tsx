@@ -80,7 +80,7 @@ export const Header: React.FC = () => {
           <button
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="Account"
-            className="neu-sm grid h-9 w-9 place-items-center overflow-hidden rounded-full"
+            className="neu-sm grid h-9 w-9 place-items-center overflow-hidden rounded-full p-0"
           >
             <BusinessAvatar name={name} logoDataUrl={profile?.logoDataUrl} size={36} rounded="rounded-full" />
           </button>
