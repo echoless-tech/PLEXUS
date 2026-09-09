@@ -25,6 +25,9 @@ export const DEMO_ACCOUNTS: readonly DemoAccount[] = [
 export const demoAccountFor = (email: string | null | undefined): DemoAccount | undefined =>
   email ? DEMO_ACCOUNTS.find((a) => a.email === email.trim().toLowerCase()) : undefined;
 
+/** Accounts offered in the Settings switcher — the two sides of a deal only; the buyer is recognised but not a target. */
+export const DEMO_SWITCH_TARGETS: readonly DemoAccount[] = DEMO_ACCOUNTS.filter((a) => a.key !== 'buyer');
+
 /** One-click jump target: either business-side demo ↔ the funder demo. */
 export const pairedDemoAccount = (current: DemoAccount): DemoAccount =>
   current.key === 'funder' ? DEMO_ACCOUNTS[0] : DEMO_ACCOUNTS[2];

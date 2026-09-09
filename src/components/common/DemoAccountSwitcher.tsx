@@ -4,11 +4,11 @@ import { ArrowLeftRight, Check, Loader2, FlaskConical } from 'lucide-react';
 import { Tile, Button, Label } from '../ui';
 import { useAppStore } from '../../stores/appStore';
 import { signIn, signOut } from '../../services/auth';
-import { DEMO_ACCOUNTS, demoAccountFor, pairedDemoAccount, type DemoAccount } from '../../lib/demo';
+import { DEMO_SWITCH_TARGETS, demoAccountFor, pairedDemoAccount, type DemoAccount } from '../../lib/demo';
 
 /**
  * Settings → Developer: jump between the public demo accounts without
- * retyping credentials (business ↔ funder in one click, buyer listed too).
+ * retyping credentials (business ↔ funder in one click).
  * Renders nothing unless the signed-in user IS a demo account, and can only
  * sign into another demo account — it is inert for real users.
  */
@@ -47,7 +47,7 @@ export const DemoAccountSwitcher: React.FC = () => {
       </div>
 
       <ul className="divide-y divide-hairline">
-        {DEMO_ACCOUNTS.map((a) => {
+        {DEMO_SWITCH_TARGETS.map((a) => {
           const isCurrent = a.key === current.key;
           const isBusy = busy?.key === a.key;
           return (
