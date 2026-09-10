@@ -58,8 +58,8 @@ export async function offerFunding(c: Contract, funderName: string, note = ''): 
   const { uid } = requireUser();
   const id = fundingId(c.id, uid);
   const ref = doc(col(), id);
-  const existing = await getDoc(ref);
-  if (existing.exists()) {
+  const existing = await getDoc(ref).catch(() => null);
+  if (existing && existing.exists()) {
     const cur = mapFunding(id, existing.data());
     if (cur.status === 'withdrawn') {
       await updateDoc(ref, { status: 'offered', updatedAt: serverTimestamp() });

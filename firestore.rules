@@ -752,9 +752,16 @@ service cloud.firestore {
 
     match /fundings/{fid} {
       // Only the two parties to the funding. Queries must constrain
-      // funderUid == self or smeUid == self to be provable.
+      // funderUid == self or smeUid == self to be provable. A caller may also
+      // probe their OWN not-yet-created funding (doc id ends with their uid);
+      // this is what lets a funder check-then-offer a brand-new plan without a
+      // permission error on the non-existent document.
       allow read: if isAuthed() &&
-        (uid() == resource.data.funderUid || uid() == resource.data.smeUid);
+        (
+          (resource == null && fid.matches('.*_' + uid())) ||
+          uid() == resource.data.funderUid ||
+          uid() == resource.data.smeUid
+        );
 
       // Funder chooses a plan. The plan must belong to a business that is open
       // to funding and be live; the funder must be verified; the doc id must be
